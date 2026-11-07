@@ -1,0 +1,45 @@
+[project]
+name = "sentinelzero-ai"
+version = "0.1.0"
+description = "SentinelZero authenticated AI incident-analysis service (NVIDIA Nemotron, tool use, proposals only)."
+requires-python = ">=3.12"
+dependencies = [
+  # Versions verified by installing into Python 3.12.10 on 2026-11-07.
+  "fastapi==0.162.2",
+  "uvicorn==0.54.0",
+  "httpx==0.28.1",
+  "pydantic==2.14.3",
+  "pydantic-settings==2.16.2",
+  "PyJWT==2.15.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest==9.2.0",
+  "pytest-asyncio==1.4.1.post1",
+  "pytest-cov==7.17.2",
+  "anyio==4.16.0",
+]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["app", "app.routes", "app.agents", "app.llm", "app.tools", "app.security"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = [".", "../.."]
+addopts = "-ra"
+markers = [
+  "live: calls the real NVIDIA endpoint; requires NVIDIA_API_KEY and is skipped otherwise",
+]
+filterwarnings = [
+  "ignore::DeprecationWarning",
+]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/__main__.py"]
