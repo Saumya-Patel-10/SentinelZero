@@ -1,0 +1,17 @@
+:root {
+  --color-bg-deep: #06090e;
+  --color-bg-base: #0B0F17;
+  --color-bg-surface: #111827;
+  --color-bg-elevated: #1a2234;
+  --color-border: #24324d;
+  --color-border-bright: #3b82f6;
+
+  --color-cyan: #06b6d4;
+  --color-cyan-glow: rgba(6, 182, 212, 0.4);
+
+  --status-confirmed: #ef4444;
+  --status-suspected: #f59e0b;
+  --status-unknown: #64748b;
+  --status-recovered: #10b981;
+  --status-ruledout: #3b82f6;
+}
