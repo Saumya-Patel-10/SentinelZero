@@ -454,3 +454,4 @@ class SpacetimeClientService {
 }
 
 export const spacetimeClient = new SpacetimeClientService();
+

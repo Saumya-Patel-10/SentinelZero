@@ -49,3 +49,4 @@ describe('Role Authorization Matrix & Reducer Privilege Checks', () => {
     ).rejects.toThrowError(/ACCESS_DENIED/);
   });
 });
+

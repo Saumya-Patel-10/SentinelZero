@@ -188,3 +188,4 @@ export const ImpactGraph3D: React.FC = () => {
     </div>
   );
 };
+

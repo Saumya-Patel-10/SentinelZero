@@ -133,3 +133,4 @@ class AIServiceClient {
 }
 
 export const aiClient = new AIServiceClient();
+

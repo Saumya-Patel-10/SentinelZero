@@ -169,3 +169,4 @@ export const IncidentLifecycleBar: React.FC = () => {
     </div>
   );
 };
+

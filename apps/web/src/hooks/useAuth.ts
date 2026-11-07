@@ -50,3 +50,4 @@ export function useAuth() {
     availableUsers: MOCK_USERS,
   };
 }
+

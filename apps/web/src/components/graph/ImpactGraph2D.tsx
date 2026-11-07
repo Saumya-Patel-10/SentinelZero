@@ -122,3 +122,4 @@ export const ImpactGraph2D: React.FC = () => {
     </div>
   );
 };
+

@@ -134,3 +134,4 @@ export const CreateIncidentModal: React.FC<CreateIncidentModalProps> = ({ isOpen
     </Modal>
   );
 };
+

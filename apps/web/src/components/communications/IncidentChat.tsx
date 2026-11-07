@@ -127,3 +127,4 @@ export const IncidentChat: React.FC = () => {
     </div>
   );
 };
+

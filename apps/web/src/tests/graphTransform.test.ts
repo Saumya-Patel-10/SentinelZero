@@ -53,3 +53,4 @@ describe('Cyber-to-Human Impact Graph Canonical Transform', () => {
     expect(fwEdges.length).toBe(0);
   });
 });
+

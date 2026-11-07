@@ -60,3 +60,4 @@ describe('Incident Lifecycle Reducers & Validation', () => {
     expect(reopened.status).toBe('TRIAGING');
   });
 });
+

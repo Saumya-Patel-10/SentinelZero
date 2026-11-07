@@ -126,3 +126,4 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ isOpen, onClos
     </Modal>
   );
 };
+

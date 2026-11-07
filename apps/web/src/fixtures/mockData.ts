@@ -640,3 +640,4 @@ export const MOCK_RECOMMENDATIONS: AgentRecommendation[] = [
     created_at: '2026-11-07T14:38:00Z',
   },
 ];
+

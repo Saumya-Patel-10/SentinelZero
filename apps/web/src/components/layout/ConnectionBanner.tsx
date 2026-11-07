@@ -31,3 +31,4 @@ export const ConnectionBanner: React.FC = () => {
     </div>
   );
 };
+

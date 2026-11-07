@@ -137,3 +137,4 @@ export const ExerciseBadge: React.FC<{ className?: string }> = ({ className = ''
     EXERCISE SCENARIO
   </span>
 );
+
