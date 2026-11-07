@@ -1,0 +1,15 @@
+{
+  "name": "sentinelzero-ai-e2e",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Playwright API and browser smoke tests for the SentinelZero AI service.",
+  "scripts": {
+    "test": "playwright test",
+    "test:api": "playwright test --project=api",
+    "test:web": "playwright test --project=web"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.0"
+  }
+}
