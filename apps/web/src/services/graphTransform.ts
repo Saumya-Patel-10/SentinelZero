@@ -67,7 +67,7 @@ export function transformToImpactGraph(
     const x2D = col * assetSpacingX;
     const y2D = row * 160;
 
-    // 3D position (Left plane in 3D space: x = -12 to -4)
+    // 3D position (Left plane in 3D space: x = -10 to -4)
     const x3D = -10 + col * 3;
     const y3D = 6 - row * 2.8;
     const z3D = (col % 2 === 0 ? 0 : -1.5);
@@ -227,3 +227,107 @@ export function transformToImpactGraph(
   };
 }
 
+/**
+ * Adapter: Transforms canonical packages/shared ImpactGraph output directly
+ * into normalized 2D/3D graph data structures.
+ */
+export function transformCanonicalGraph(canonical: {
+  nodes: Array<{
+    id: string;
+    kind: 'asset' | 'service' | 'impact_group';
+    label: string;
+    status: string;
+    severity: string;
+    verification: string;
+    incident_id: string;
+  }>;
+  edges: Array<{
+    id: string;
+    source: string;
+    target: string;
+    kind: 'dependency' | 'impact';
+    verification: string;
+  }>;
+}): TransformedGraph {
+  const nodes: NormalizedGraphNode[] = [];
+  const edges: NormalizedGraphEdge[] = [];
+
+  const assetNodes = canonical.nodes.filter(n => n.kind === 'asset');
+  const serviceNodes = canonical.nodes.filter(n => n.kind === 'service');
+  const groupNodes = canonical.nodes.filter(n => n.kind === 'impact_group');
+
+  // 1. Assets
+  assetNodes.forEach((node, idx) => {
+    const col = idx % 3;
+    const row = Math.floor(idx / 3);
+    nodes.push({
+      id: node.id,
+      label: node.label,
+      sublabel: `Status: ${node.status}`,
+      type: 'ASSET',
+      status: (node.verification as VerificationStatus) || 'UNKNOWN',
+      criticality: node.severity,
+      details: { ...node },
+      layer: 0,
+      position2D: { x: col * 240, y: row * 160 },
+      position3D: [-10 + col * 3, 6 - row * 2.8, col % 2 === 0 ? 0 : -1.5],
+    });
+  });
+
+  // 2. Services
+  serviceNodes.forEach((node, idx) => {
+    nodes.push({
+      id: node.id,
+      label: node.label,
+      sublabel: `Availability: ${node.status}`,
+      type: 'SERVICE',
+      status: (node.verification as VerificationStatus) || 'UNKNOWN',
+      criticality: node.severity,
+      details: { ...node },
+      layer: 1,
+      position2D: { x: 850, y: idx * 220 + 60 },
+      position3D: [2, 4 - idx * 3.5, 0],
+    });
+  });
+
+  // 3. Groups
+  groupNodes.forEach((node, idx) => {
+    nodes.push({
+      id: node.id,
+      label: node.label,
+      sublabel: 'Operational Group Impacted',
+      type: 'AFFECTED_GROUP',
+      status: (node.verification as VerificationStatus) || 'UNKNOWN',
+      criticality: node.severity,
+      details: { ...node },
+      layer: 2,
+      position2D: { x: 1350, y: idx * 130 + 40 },
+      position3D: [12, 5 - idx * 2.2, idx % 2 === 0 ? 0 : 1],
+    });
+  });
+
+  // Edges
+  canonical.edges.forEach(edge => {
+    edges.push({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      type: edge.kind === 'dependency' ? 'DEPENDENCY' : 'HUMAN_IMPACT',
+      label: edge.kind === 'dependency' ? 'Dependency' : 'Impacts Team',
+      isConfirmed: edge.verification === 'CONFIRMED',
+      status: (edge.verification as VerificationStatus) || 'UNKNOWN',
+    });
+  });
+
+  return {
+    nodes,
+    edges,
+    summary: {
+      totalAssets: assetNodes.length,
+      compromisedConfirmed: assetNodes.filter(a => a.verification === 'CONFIRMED').length,
+      compromisedSuspected: assetNodes.filter(a => a.verification === 'SUSPECTED').length,
+      servicesDisrupted: serviceNodes.length,
+      humanGroupsAffected: groupNodes.length,
+    },
+  };
+}
