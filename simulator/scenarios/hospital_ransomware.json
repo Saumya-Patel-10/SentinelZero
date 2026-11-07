@@ -1,0 +1,159 @@
+{
+  "schema_version": "1.0",
+  "scenario_id": "hospital_ransomware_v1",
+  "name": "Riverbend Community Hospital Ransomware (EXERCISE)",
+  "fictional": true,
+  "labels": ["EXERCISE", "SYNTHETIC", "FICTIONAL_ORGANIZATION"],
+  "exercise": {
+    "label": "EXERCISE",
+    "synthetic": true,
+    "generated_at": "2026-03-14T02:00:00Z",
+    "notice": "Synthetic tabletop exercise. No real organization, patient, host, or command is represented.",
+    "scenario_id": "hospital_ransomware_v1"
+  },
+  "organization": {
+    "id": "org_riverbend_001",
+    "name": "Riverbend Community Hospital (EXERCISE)",
+    "status": "ACTIVE",
+    "created_at": "2025-01-02T09:00:00Z",
+    "fictional": true
+  },
+  "users": [
+    {"id": "usr_owner_001", "auth_identity": "owner@riverbend.exercise.invalid", "display_name": "Alex Rivera (Exercise Owner)", "disabled_at": null},
+    {"id": "usr_commander_001", "auth_identity": "commander@riverbend.exercise.invalid", "display_name": "Morgan Chen (Exercise Commander)", "disabled_at": null},
+    {"id": "usr_analyst_001", "auth_identity": "analyst@riverbend.exercise.invalid", "display_name": "Priya Nair (Exercise Analyst)", "disabled_at": null},
+    {"id": "usr_responder_001", "auth_identity": "responder@riverbend.exercise.invalid", "display_name": "Sam Okafor (Exercise Responder)", "disabled_at": null}
+  ],
+  "memberships": [
+    {"id": "mem_owner_001", "organization_id": "org_riverbend_001", "user_identity": "owner@riverbend.exercise.invalid", "role": "OWNER", "revoked_at": null},
+    {"id": "mem_commander_001", "organization_id": "org_riverbend_001", "user_identity": "commander@riverbend.exercise.invalid", "role": "COMMANDER", "revoked_at": null},
+    {"id": "mem_analyst_001", "organization_id": "org_riverbend_001", "user_identity": "analyst@riverbend.exercise.invalid", "role": "ANALYST", "revoked_at": null},
+    {"id": "mem_responder_001", "organization_id": "org_riverbend_001", "user_identity": "responder@riverbend.exercise.invalid", "role": "RESPONDER", "revoked_at": null}
+  ],
+  "incident": {
+    "id": "inc_riverbend_ransomware_001",
+    "organization_id": "org_riverbend_001",
+    "title": "Suspected ransomware affecting clinical systems (EXERCISE)",
+    "description": "At 01:47 the overnight service desk reported that an EHR client displayed a ransom note and that several shared drives were unavailable. The incident commander opened a critical ransomware incident. No real systems or patients are involved; this is a synthetic exercise.",
+    "category": "RANSOMWARE",
+    "severity": "CRITICAL",
+    "status": "REPORTED",
+    "commander_identity": "commander@riverbend.exercise.invalid",
+    "detected_at": "2026-03-14T01:47:00Z",
+    "reported_at": "2026-03-14T01:52:00Z",
+    "created_at": "2026-03-14T01:55:00Z",
+    "updated_at": "2026-03-14T01:55:00Z",
+    "version": 1,
+    "exercise_label": "EXERCISE"
+  },
+  "assets": [
+    {"id": "ast_ad_dc1", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "name": "AD-DC-01 (exercise)", "type": "IDENTITY", "criticality": "CRITICAL", "compromise_status": "UNKNOWN", "availability_status": "OPERATIONAL", "last_verified_at": "2026-03-14T01:50:00Z", "evidence_reference": "ev_ad_auth"},
+    {"id": "ast_backup01", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "name": "BACKUP-01 (exercise)", "type": "BACKUP", "criticality": "CRITICAL", "compromise_status": "UNKNOWN", "availability_status": "OPERATIONAL", "last_verified_at": "2026-03-14T01:58:00Z", "evidence_reference": "ev_backup_log"},
+    {"id": "ast_billing_app", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "name": "Billing App (exercise)", "type": "APPLICATION", "criticality": "HIGH", "compromise_status": "UNKNOWN", "availability_status": "OPERATIONAL", "last_verified_at": "2026-03-14T01:51:00Z", "evidence_reference": "ev_billing_scan"},
+    {"id": "ast_billing_db", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "name": "Billing DB (exercise)", "type": "DATABASE", "criticality": "HIGH", "compromise_status": "UNKNOWN", "availability_status": "OPERATIONAL", "last_verified_at": "2026-03-14T01:51:00Z", "evidence_reference": "ev_billing_scan"},
+    {"id": "ast_dns1", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "name": "DNS-01 (exercise)", "type": "NETWORK", "criticality": "HIGH", "compromise_status": "UNKNOWN", "availability_status": "OPERATIONAL", "last_verified_at": "2026-03-14T01:50:00Z", "evidence_reference": "ev_dns_log"},
+    {"id": "ast_ehr_app", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "name": "EHR App (exercise)", "type": "APPLICATION", "criticality": "CRITICAL", "compromise_status": "UNKNOWN", "availability_status": "OPERATIONAL", "last_verified_at": "2026-03-14T01:49:00Z", "evidence_reference": "ev_edr_alert"},
+    {"id": "ast_ehr_db", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "name": "EHR DB (exercise)", "type": "DATABASE", "criticality": "CRITICAL", "compromise_status": "UNKNOWN", "availability_status": "OPERATIONAL", "last_verified_at": "2026-03-14T01:49:00Z", "evidence_reference": "ev_ehr_db_access"},
+    {"id": "ast_file01", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "name": "FILE-01 (exercise)", "type": "FILE_SERVER", "criticality": "HIGH", "compromise_status": "UNKNOWN", "availability_status": "OPERATIONAL", "last_verified_at": "2026-03-14T01:48:00Z", "evidence_reference": "ev_file_lock"},
+    {"id": "ast_mail01", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "name": "MAIL-01 (exercise)", "type": "APPLICATION", "criticality": "HIGH", "compromise_status": "UNKNOWN", "availability_status": "OPERATIONAL", "last_verified_at": "2026-03-14T01:50:00Z", "evidence_reference": "ev_mail_gateway"},
+    {"id": "ast_pacs01", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "name": "PACS Imaging (exercise)", "type": "APPLICATION", "criticality": "HIGH", "compromise_status": "UNKNOWN", "availability_status": "OPERATIONAL", "last_verified_at": "2026-03-14T01:50:00Z", "evidence_reference": "ev_pacs_outage"},
+    {"id": "ast_sched_app", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "name": "Scheduling App (exercise)", "type": "APPLICATION", "criticality": "HIGH", "compromise_status": "UNKNOWN", "availability_status": "OPERATIONAL", "last_verified_at": "2026-03-14T01:48:00Z", "evidence_reference": "ev_sched_outage"},
+    {"id": "ast_sched_db", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "name": "Scheduling DB (exercise)", "type": "DATABASE", "criticality": "HIGH", "compromise_status": "UNKNOWN", "availability_status": "OPERATIONAL", "last_verified_at": "2026-03-14T01:48:00Z", "evidence_reference": "ev_sched_outage"}
+  ],
+  "services": [
+    {"id": "svc_billing", "organization_id": "org_riverbend_001", "name": "Patient Billing (exercise)", "criticality": "HIGH", "status": "OPERATIONAL"},
+    {"id": "svc_ehr", "organization_id": "org_riverbend_001", "name": "Electronic Health Record (exercise)", "criticality": "CRITICAL", "status": "OPERATIONAL"},
+    {"id": "svc_scheduling", "organization_id": "org_riverbend_001", "name": "Appointment Scheduling (exercise)", "criticality": "HIGH", "status": "OPERATIONAL"}
+  ],
+  "service_dependencies": [
+    {"id": "dep_001", "organization_id": "org_riverbend_001", "source_asset_id": "ast_ehr_app", "target_service_id": "svc_ehr", "type": "PROVIDES", "confidence": 0.99, "verified_at": "2026-03-01T10:00:00Z"},
+    {"id": "dep_002", "organization_id": "org_riverbend_001", "source_asset_id": "ast_ehr_db", "target_service_id": "svc_ehr", "type": "STORES_DATA_FOR", "confidence": 0.99, "verified_at": "2026-03-01T10:00:00Z"},
+    {"id": "dep_003", "organization_id": "org_riverbend_001", "source_asset_id": "ast_billing_app", "target_service_id": "svc_billing", "type": "PROVIDES", "confidence": 0.95, "verified_at": "2026-03-01T10:05:00Z"},
+    {"id": "dep_004", "organization_id": "org_riverbend_001", "source_asset_id": "ast_billing_db", "target_service_id": "svc_billing", "type": "STORES_DATA_FOR", "confidence": 0.95, "verified_at": "2026-03-01T10:05:00Z"},
+    {"id": "dep_005", "organization_id": "org_riverbend_001", "source_asset_id": "ast_sched_app", "target_service_id": "svc_scheduling", "type": "PROVIDES", "confidence": 0.98, "verified_at": "2026-03-02T09:30:00Z"},
+    {"id": "dep_006", "organization_id": "org_riverbend_001", "source_asset_id": "ast_sched_db", "target_service_id": "svc_scheduling", "type": "STORES_DATA_FOR", "confidence": 0.98, "verified_at": "2026-03-02T09:30:00Z"},
+    {"id": "dep_007", "organization_id": "org_riverbend_001", "source_asset_id": "ast_ehr_app", "target_service_id": "svc_ehr", "type": "AUTHENTICATES_VIA", "confidence": 0.9, "verified_at": "2026-03-02T09:35:00Z"},
+    {"id": "dep_008", "organization_id": "org_riverbend_001", "source_asset_id": "ast_pacs01", "target_service_id": "svc_ehr", "type": "INTEGRATES_WITH", "confidence": 0.8, "verified_at": "2026-03-02T09:40:00Z"}
+  ],
+  "operational_impacts": [],
+  "data_scopes": [
+    {"id": "ds_billing", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "asset_id": "ast_billing_db", "data_category": "FINANCIAL_ACCOUNT_DATA", "sensitivity": "HIGH", "lock_status": "UNLOCKED", "exfiltration_status": "UNKNOWN", "integrity_status": "UNKNOWN", "estimated_records": 12000, "confidence": 0.2, "evidence_reference": "ev_billing_scan"},
+    {"id": "ds_ehr", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "asset_id": "ast_ehr_db", "data_category": "PATIENT_RECORDS", "sensitivity": "CRITICAL", "lock_status": "UNLOCKED", "exfiltration_status": "UNKNOWN", "integrity_status": "UNKNOWN", "estimated_records": 48000, "confidence": 0.4, "evidence_reference": "ev_ehr_db_access"},
+    {"id": "ds_sched", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "asset_id": "ast_sched_db", "data_category": "OPERATIONS", "sensitivity": "MEDIUM", "lock_status": "UNLOCKED", "exfiltration_status": "UNKNOWN", "integrity_status": "UNKNOWN", "estimated_records": 3500, "confidence": 0.3, "evidence_reference": "ev_sched_outage"}
+  ],
+  "tasks": [
+    {"id": "tsk_verify_backups", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "title": "Verify offline backup integrity (exercise)", "priority": "HIGH", "status": "IN_PROGRESS", "assigned_identity": "responder@riverbend.exercise.invalid", "approval_status": "NOT_REQUIRED", "version": 1, "idempotency_key": "seed-task-verify-backups", "created_at": "2026-03-14T01:56:00Z", "phase": "baseline", "exercise_label": "EXERCISE"},
+    {"id": "tsk_contact_vendor", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "title": "Contact EHR vendor support (exercise)", "priority": "MEDIUM", "status": "PENDING", "assigned_identity": "responder@riverbend.exercise.invalid", "approval_status": "NOT_REQUIRED", "version": 1, "idempotency_key": "seed-task-contact-vendor", "created_at": "2026-03-14T01:57:00Z", "phase": "baseline", "exercise_label": "EXERCISE"},
+    {"id": "tsk_preserve_evidence", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "title": "Preserve ransomware note and affected host evidence (exercise)", "priority": "CRITICAL", "status": "AWAITING_APPROVAL", "assigned_identity": null, "approval_status": "PENDING", "version": 1, "idempotency_key": "seed-task-preserve-evidence", "created_at": "2026-03-14T02:05:00Z", "phase": "inject", "exercise_label": "EXERCISE"},
+    {"id": "tsk_scheduling_downtime", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "title": "Activate manual scheduling downtime procedure (exercise)", "priority": "HIGH", "status": "PENDING", "assigned_identity": "responder@riverbend.exercise.invalid", "approval_status": "PENDING", "version": 1, "idempotency_key": "seed-task-scheduling-downtime", "created_at": "2026-03-14T02:06:00Z", "phase": "inject", "exercise_label": "EXERCISE"},
+    {"id": "tsk_validate_egress", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "title": "Validate outbound network evidence for exfiltration (exercise)", "priority": "HIGH", "status": "PENDING", "assigned_identity": "analyst@riverbend.exercise.invalid", "approval_status": "PENDING", "version": 1, "idempotency_key": "seed-task-validate-egress", "created_at": "2026-03-14T02:07:00Z", "phase": "inject", "exercise_label": "EXERCISE"},
+    {"id": "tsk_comms_hold", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "title": "Draft internal status update; no external contact (exercise)", "priority": "MEDIUM", "status": "BLOCKED", "assigned_identity": null, "approval_status": "PENDING", "version": 1, "idempotency_key": "seed-task-comms-hold", "created_at": "2026-03-14T02:08:00Z", "phase": "inject", "exercise_label": "EXERCISE"}
+  ],
+  "messages": [
+    {"id": "msg_001", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "sender_identity": "commander@riverbend.exercise.invalid", "content": "EXERCISE: command post is independent of hospital systems. Track exfiltration as UNKNOWN until evidence says otherwise.", "created_at": "2026-03-14T02:01:00Z", "phase": "baseline"},
+    {"id": "msg_002", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "sender_identity": "analyst@riverbend.exercise.invalid", "content": "EXERCISE: reviewing EDR and DNS telemetry; no confirmed exfiltration yet.", "created_at": "2026-03-14T02:02:00Z", "phase": "baseline"},
+    {"id": "msg_003", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "sender_identity": "commander@riverbend.exercise.invalid", "content": "EXERCISE: scheduling service is confirmed unavailable. Do not infer patient harm from dependency alone.", "created_at": "2026-03-14T02:09:00Z", "phase": "inject"}
+  ],
+  "evidence_references": [
+    {"id": "ev_ad_auth", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "type": "AUTH_LOG", "source": "Exercise identity controller telemetry", "sha256": "auto", "classification": "INTERNAL", "recorded_at": "2026-03-14T01:52:00Z", "phase": "baseline", "exercise_label": "EXERCISE"},
+    {"id": "ev_backup_log", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "type": "BACKUP_LOG", "source": "Exercise offline backup console", "sha256": "auto", "classification": "INTERNAL", "recorded_at": "2026-03-14T01:58:00Z", "phase": "baseline", "exercise_label": "EXERCISE"},
+    {"id": "ev_dns_log", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "type": "NETWORK_LOG", "source": "Exercise DNS resolver logs", "sha256": "auto", "classification": "INTERNAL", "recorded_at": "2026-03-14T01:53:00Z", "phase": "baseline", "exercise_label": "EXERCISE"},
+    {"id": "ev_edr_alert", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "type": "EDR_ALERT", "source": "Exercise EDR console", "sha256": "auto", "classification": "INTERNAL", "recorded_at": "2026-03-14T01:49:00Z", "phase": "baseline", "exercise_label": "EXERCISE"},
+    {"id": "ev_mail_gateway", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "type": "MAIL_LOG", "source": "Exercise mail gateway", "sha256": "auto", "classification": "INTERNAL", "recorded_at": "2026-03-14T01:50:00Z", "phase": "baseline", "exercise_label": "EXERCISE"},
+    {"id": "ev_net_flow", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "type": "NETWORK_FLOW", "source": "Exercise flow collector", "sha256": "auto", "classification": "INTERNAL", "recorded_at": "2026-03-14T01:54:00Z", "phase": "baseline", "exercise_label": "EXERCISE"},
+    {"id": "ev_ransom_note", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "type": "RANSOM_NOTE", "source": "Exercise workstation photo", "sha256": "auto", "classification": "SENSITIVE", "recorded_at": "2026-03-14T02:03:00Z", "phase": "inject", "exercise_label": "EXERCISE"},
+    {"id": "ev_file_lock", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "type": "FILE_SYSTEM", "source": "Exercise file server sample", "sha256": "auto", "classification": "SENSITIVE", "recorded_at": "2026-03-14T02:04:00Z", "phase": "inject", "exercise_label": "EXERCISE"},
+    {"id": "ev_ehr_db_access", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "type": "DATABASE_AUDIT", "source": "Exercise EHR database audit export", "sha256": "auto", "classification": "SENSITIVE", "recorded_at": "2026-03-14T02:05:30Z", "phase": "inject", "exercise_label": "EXERCISE"},
+    {"id": "ev_sched_outage", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "type": "SERVICE_MONITOR", "source": "Exercise scheduling monitor", "sha256": "auto", "classification": "INTERNAL", "recorded_at": "2026-03-14T02:06:30Z", "phase": "inject", "exercise_label": "EXERCISE"},
+    {"id": "ev_billing_scan", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "type": "VULNERABILITY_SCAN", "source": "Exercise billing database scan", "sha256": "auto", "classification": "SENSITIVE", "recorded_at": "2026-03-14T02:07:30Z", "phase": "inject", "exercise_label": "EXERCISE"},
+    {"id": "ev_pacs_outage", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "type": "SERVICE_MONITOR", "source": "Exercise imaging monitor", "sha256": "auto", "classification": "INTERNAL", "recorded_at": "2026-03-14T02:08:30Z", "phase": "inject", "exercise_label": "EXERCISE"}
+  ],
+  "audit_events": [
+    {"id": "aud_001", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "actor_identity": "commander@riverbend.exercise.invalid", "event_type": "incident_reported", "target_id": "inc_riverbend_ransomware_001", "timestamp": "2026-03-14T01:55:00Z", "metadata": {"severity": "CRITICAL", "exercise": true}, "phase": "baseline", "exercise_label": "EXERCISE"},
+    {"id": "aud_002", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "actor_identity": "responder@riverbend.exercise.invalid", "event_type": "task_created", "target_id": "tsk_verify_backups", "timestamp": "2026-03-14T01:56:00Z", "metadata": {"priority": "HIGH", "exercise": true}, "phase": "baseline", "exercise_label": "EXERCISE"},
+    {"id": "aud_003", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "actor_identity": "responder@riverbend.exercise.invalid", "event_type": "task_created", "target_id": "tsk_contact_vendor", "timestamp": "2026-03-14T01:57:00Z", "metadata": {"priority": "MEDIUM", "exercise": true}, "phase": "baseline", "exercise_label": "EXERCISE"},
+    {"id": "aud_004", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "actor_identity": "analyst@riverbend.exercise.invalid", "event_type": "evidence_recorded", "target_id": "ev_edr_alert", "timestamp": "2026-03-14T01:57:30Z", "metadata": {"type": "EDR_ALERT", "exercise": true}, "phase": "baseline", "exercise_label": "EXERCISE"},
+    {"id": "aud_005", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "actor_identity": "analyst@riverbend.exercise.invalid", "event_type": "evidence_recorded", "target_id": "ev_dns_log", "timestamp": "2026-03-14T01:58:30Z", "metadata": {"type": "NETWORK_LOG", "exercise": true}, "phase": "baseline", "exercise_label": "EXERCISE"},
+    {"id": "aud_006", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "actor_identity": "commander@riverbend.exercise.invalid", "event_type": "message_sent", "target_id": "msg_001", "timestamp": "2026-03-14T02:01:00Z", "metadata": {"exercise": true}, "phase": "baseline", "exercise_label": "EXERCISE"},
+    {"id": "aud_007", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "actor_identity": "commander@riverbend.exercise.invalid", "event_type": "incident_status_transition", "target_id": "inc_riverbend_ransomware_001", "timestamp": "2026-03-14T02:02:00Z", "metadata": {"from": "REPORTED", "to": "INVESTIGATING", "exercise": true}, "phase": "inject", "exercise_label": "EXERCISE"},
+    {"id": "aud_008", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "actor_identity": "analyst@riverbend.exercise.invalid", "event_type": "asset_status_updated", "target_id": "ast_ehr_db", "timestamp": "2026-03-14T02:03:00Z", "metadata": {"compromise_status": "SUSPECTED", "exercise": true}, "phase": "inject", "exercise_label": "EXERCISE"},
+    {"id": "aud_009", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "actor_identity": "analyst@riverbend.exercise.invalid", "event_type": "asset_status_updated", "target_id": "ast_sched_app", "timestamp": "2026-03-14T02:05:00Z", "metadata": {"availability_status": "UNAVAILABLE", "exercise": true}, "phase": "inject", "exercise_label": "EXERCISE"},
+    {"id": "aud_010", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "actor_identity": "analyst@riverbend.exercise.invalid", "event_type": "evidence_recorded", "target_id": "ev_ransom_note", "timestamp": "2026-03-14T02:05:30Z", "metadata": {"classification": "SENSITIVE", "exercise": true}, "phase": "inject", "exercise_label": "EXERCISE"},
+    {"id": "aud_011", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "actor_identity": "commander@riverbend.exercise.invalid", "event_type": "task_created", "target_id": "tsk_preserve_evidence", "timestamp": "2026-03-14T02:06:00Z", "metadata": {"priority": "CRITICAL", "exercise": true}, "phase": "inject", "exercise_label": "EXERCISE"},
+    {"id": "aud_012", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "actor_identity": "commander@riverbend.exercise.invalid", "event_type": "task_created", "target_id": "tsk_scheduling_downtime", "timestamp": "2026-03-14T02:07:00Z", "metadata": {"priority": "HIGH", "exercise": true}, "phase": "inject", "exercise_label": "EXERCISE"},
+    {"id": "aud_013", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "actor_identity": "analyst@riverbend.exercise.invalid", "event_type": "operational_impact_recorded", "target_id": "imp_sched_001", "timestamp": "2026-03-14T02:07:30Z", "metadata": {"service": "svc_scheduling", "verification_status": "CONFIRMED", "exercise": true}, "phase": "inject", "exercise_label": "EXERCISE"},
+    {"id": "aud_014", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "actor_identity": "analyst@riverbend.exercise.invalid", "event_type": "uncertainty_recorded", "target_id": "ds_ehr", "timestamp": "2026-03-14T02:08:00Z", "metadata": {"exfiltration_status": "UNKNOWN", "exercise": true}, "phase": "inject", "exercise_label": "EXERCISE"},
+    {"id": "aud_015", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "actor_identity": "commander@riverbend.exercise.invalid", "event_type": "message_sent", "target_id": "msg_003", "timestamp": "2026-03-14T02:09:00Z", "metadata": {"exercise": true}, "phase": "inject", "exercise_label": "EXERCISE"},
+    {"id": "aud_016", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "actor_identity": "responder@riverbend.exercise.invalid", "event_type": "backup_verification_started", "target_id": "ast_backup01", "timestamp": "2026-03-14T02:10:00Z", "metadata": {"exercise": true}, "phase": "inject", "exercise_label": "EXERCISE"}
+  ],
+  "injection": {
+    "incident_updates": {
+      "status": "INVESTIGATING",
+      "description": "Overnight ransomware activity affected an EHR client, shared file services, imaging, and appointment scheduling. The EHR database is SUSPECTED compromised; scheduling is CONFIRMED unavailable. Exfiltration status is UNKNOWN and must not be treated as confirmed. This is synthetic EXERCISE data.",
+      "updated_at": "2026-03-14T02:10:00Z",
+      "version": 2
+    },
+    "asset_updates": {
+      "ast_ehr_app": {"compromise_status": "SUSPECTED", "availability_status": "DEGRADED", "last_verified_at": "2026-03-14T02:03:00Z"},
+      "ast_ehr_db": {"compromise_status": "SUSPECTED", "availability_status": "DEGRADED", "last_verified_at": "2026-03-14T02:03:00Z"},
+      "ast_file01": {"compromise_status": "SUSPECTED", "availability_status": "DEGRADED", "last_verified_at": "2026-03-14T02:04:00Z"},
+      "ast_sched_app": {"availability_status": "UNAVAILABLE", "last_verified_at": "2026-03-14T02:05:00Z"},
+      "ast_sched_db": {"availability_status": "UNAVAILABLE", "last_verified_at": "2026-03-14T02:05:00Z"},
+      "ast_pacs01": {"availability_status": "UNAVAILABLE", "last_verified_at": "2026-03-14T02:08:30Z"}
+    },
+    "data_scope_updates": {
+      "ds_ehr": {"lock_status": "LOCKED", "integrity_status": "SUSPECTED", "confidence": 0.45},
+      "ds_sched": {"lock_status": "LOCKED", "integrity_status": "UNKNOWN", "confidence": 0.3}
+    },
+    "operational_impacts": [
+      {"id": "imp_ehr_001", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "service_id": "svc_ehr", "impact_type": "DEGRADED_SERVICE", "severity": "HIGH", "verification_status": "SUSPECTED", "description": "EHR access is degraded; compromise of the database remains suspected, not confirmed.", "exercise_label": "EXERCISE"},
+      {"id": "imp_billing_001", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "service_id": "svc_billing", "impact_type": "DATA_AT_RISK", "severity": "HIGH", "verification_status": "UNKNOWN", "description": "Billing data exposure and exfiltration status are unknown.", "exercise_label": "EXERCISE"},
+      {"id": "imp_sched_001", "organization_id": "org_riverbend_001", "incident_id": "inc_riverbend_ransomware_001", "service_id": "svc_scheduling", "impact_type": "SERVICE_UNAVAILABLE", "severity": "CRITICAL", "verification_status": "CONFIRMED", "description": "Appointment scheduling is confirmed unavailable, requiring manual downtime procedures.", "exercise_label": "EXERCISE"}
+    ],
+    "service_updates": {
+      "svc_ehr": {"status": "DEGRADED"},
+      "svc_billing": {"status": "DEGRADED"},
+      "svc_scheduling": {"status": "UNAVAILABLE"}
+    }
+  }
+}
