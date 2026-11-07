@@ -1,0 +1,117 @@
+{
+  "all_completed": true,
+  "artifact": "agent3-performance",
+  "configuration": {
+    "backend_mode": "memory",
+    "provider_mode": "scripted",
+    "runs": 10,
+    "warmup": 2
+  },
+  "environment": {
+    "cpu_count": 24,
+    "platform": "Windows-11-10.0.26300-SP0",
+    "python": "3.12.10"
+  },
+  "generated_at": "2026-11-07T22:37:03.617319+00:00",
+  "label": "SIMULATED_MODEL_OUTPUT",
+  "latency": {
+    "count": 10,
+    "max_ms": 7.22,
+    "mean_ms": 6.59,
+    "min_ms": 6.14,
+    "p50_ms": 6.53,
+    "p95_ms": 7.22,
+    "samples_ms": [
+      7.22,
+      6.21,
+      6.47,
+      6.61,
+      6.26,
+      7.21,
+      6.53,
+      6.54,
+      6.68,
+      6.14
+    ]
+  },
+  "measurement": "in-process ASGI service overhead with scripted zero-latency provider",
+  "not_measured": "Real NVIDIA Nemotron network/model latency. Set NVIDIA_API_KEY and run the live pytest to measure real inference latency.",
+  "provider_calls_per_run": [
+    2
+  ],
+  "runs": [
+    {
+      "elapsed_ms": 7.22,
+      "provider_calls": 2,
+      "run_id": "run_36a2768d1af510a4648aebfe",
+      "status": "COMPLETED",
+      "tool_calls": 5
+    },
+    {
+      "elapsed_ms": 6.21,
+      "provider_calls": 2,
+      "run_id": "run_3d557c0bcfe1f1cbc3a48e83",
+      "status": "COMPLETED",
+      "tool_calls": 5
+    },
+    {
+      "elapsed_ms": 6.47,
+      "provider_calls": 2,
+      "run_id": "run_072ef2e7213e07938ded07b8",
+      "status": "COMPLETED",
+      "tool_calls": 5
+    },
+    {
+      "elapsed_ms": 6.61,
+      "provider_calls": 2,
+      "run_id": "run_740add4e6153057bafc16e11",
+      "status": "COMPLETED",
+      "tool_calls": 5
+    },
+    {
+      "elapsed_ms": 6.26,
+      "provider_calls": 2,
+      "run_id": "run_5388d8891af3e055a7620e2c",
+      "status": "COMPLETED",
+      "tool_calls": 5
+    },
+    {
+      "elapsed_ms": 7.21,
+      "provider_calls": 2,
+      "run_id": "run_ba43be166ea02abb77bd98cb",
+      "status": "COMPLETED",
+      "tool_calls": 5
+    },
+    {
+      "elapsed_ms": 6.53,
+      "provider_calls": 2,
+      "run_id": "run_de5f8ab818188052751268ca",
+      "status": "COMPLETED",
+      "tool_calls": 5
+    },
+    {
+      "elapsed_ms": 6.54,
+      "provider_calls": 2,
+      "run_id": "run_88477eff1ce4af9ae1026739",
+      "status": "COMPLETED",
+      "tool_calls": 5
+    },
+    {
+      "elapsed_ms": 6.68,
+      "provider_calls": 2,
+      "run_id": "run_c2755901de9ab2fc4d0afb10",
+      "status": "COMPLETED",
+      "tool_calls": 5
+    },
+    {
+      "elapsed_ms": 6.14,
+      "provider_calls": 2,
+      "run_id": "run_ec64d1f79df181fe86e3407a",
+      "status": "COMPLETED",
+      "tool_calls": 5
+    }
+  ],
+  "tool_calls_per_run": [
+    5
+  ]
+}

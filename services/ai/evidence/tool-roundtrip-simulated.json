@@ -1,0 +1,192 @@
+{
+  "artifact": "agent3-tool-roundtrip",
+  "assertions": {
+    "all_tasks_need_human": true,
+    "approval_pending": true,
+    "bearer_auth_present": true,
+    "exfiltration_uncertainty_recorded": true,
+    "followup_has_assistant_tool_calls": true,
+    "followup_has_response_format": true,
+    "followup_has_tool_messages": true,
+    "no_secret_in_run": true,
+    "only_allowlisted_tools": true,
+    "provider_turns_2": true,
+    "request_url_correct": true,
+    "run_completed": true,
+    "run_labeled_simulated": true,
+    "tool_calls_5": true,
+    "tool_choice_auto": true,
+    "tools_declared": true
+  },
+  "environment": {
+    "platform": "Windows-11-10.0.26300-SP0",
+    "python": "3.12.10"
+  },
+  "generated_at": "2026-11-07T22:37:03.574886+00:00",
+  "label": "SIMULATED_MODEL_OUTPUT",
+  "limitations": [
+    "This artifact does not prove live NVIDIA inference or model quality.",
+    "The backend is the in-memory simulator (MOCK-1), not SpacetimeDB.",
+    "Run `python -m pytest -m live` with NVIDIA_API_KEY and AI_LIVE_TESTS=1 for live evidence."
+  ],
+  "live_inference": false,
+  "protocol": {
+    "base_url": "https://integrate.api.nvidia.com/v1",
+    "followup_roles": [
+      "system",
+      "user",
+      "assistant",
+      "tool",
+      "tool",
+      "tool",
+      "tool",
+      "tool"
+    ],
+    "model": "nvidia/nemotron-3-super-120b-a12b",
+    "parallel_tool_calls": true,
+    "path": "/chat/completions",
+    "requests": 2,
+    "response_format_second_turn": "json_schema",
+    "style": "OpenAI-compatible chat completions",
+    "tool_choice": "auto",
+    "tools_declared": [
+      "get_incident",
+      "get_assets",
+      "get_dependencies",
+      "get_open_tasks",
+      "get_evidence_summaries",
+      "propose_task"
+    ],
+    "transport": "local httpx.MockTransport test double"
+  },
+  "run": {
+    "endpoint_class": "SIMULATED_WIRE_TEST_DOUBLE",
+    "inference_label": "SIMULATED_MODEL_OUTPUT",
+    "provider_calls": [
+      {
+        "endpoint_class": "SIMULATED_WIRE_TEST_DOUBLE",
+        "finish_reason": "tool_calls",
+        "input_tokens": 512,
+        "latency_ms": 0,
+        "model_identifier": "nvidia/nemotron-3-super-120b-a12b",
+        "output_tokens": 32,
+        "status": "OK",
+        "step": 1,
+        "tool_calls": 5
+      },
+      {
+        "endpoint_class": "SIMULATED_WIRE_TEST_DOUBLE",
+        "finish_reason": "stop",
+        "input_tokens": 2048,
+        "latency_ms": 0,
+        "model_identifier": "nvidia/nemotron-3-super-120b-a12b",
+        "output_tokens": 420,
+        "status": "OK",
+        "step": 2,
+        "tool_calls": 0
+      }
+    ],
+    "provider_mode": "scripted",
+    "recommendation": {
+      "approval_status": "PENDING_HUMAN_APPROVAL",
+      "evidence_ids_used": [
+        "ev_ad_auth"
+      ],
+      "fact_count": 1,
+      "proposed_task_count": 1,
+      "uncertainty_count": 1
+    },
+    "status": "COMPLETED",
+    "tool_calls": [
+      {
+        "duration_ms": 0,
+        "output_summary": {
+          "incident_status": "INVESTIGATING",
+          "injection_suspected": false,
+          "redactions": 1,
+          "severity": "CRITICAL"
+        },
+        "status": "OK",
+        "tool_name": "get_incident"
+      },
+      {
+        "duration_ms": 0,
+        "output_summary": {
+          "availability_statuses": {
+            "DEGRADED": 3,
+            "OPERATIONAL": 6,
+            "UNAVAILABLE": 3
+          },
+          "compromise_statuses": {
+            "SUSPECTED": 3,
+            "UNKNOWN": 9
+          },
+          "count": 12,
+          "injection_suspected": false,
+          "redactions": 0
+        },
+        "status": "OK",
+        "tool_name": "get_assets"
+      },
+      {
+        "duration_ms": 0,
+        "output_summary": {
+          "data_scope_count": 3,
+          "dependency_count": 8,
+          "exfiltration_statuses": {
+            "UNKNOWN": 3
+          },
+          "impact_count": 3,
+          "injection_suspected": false,
+          "redactions": 0,
+          "service_count": 3
+        },
+        "status": "OK",
+        "tool_name": "get_dependencies"
+      },
+      {
+        "duration_ms": 0,
+        "output_summary": {
+          "count": 6,
+          "injection_suspected": false,
+          "redactions": 4
+        },
+        "status": "OK",
+        "tool_name": "get_open_tasks"
+      },
+      {
+        "duration_ms": 0,
+        "output_summary": {
+          "classifications": {
+            "INTERNAL": 8,
+            "SENSITIVE": 4
+          },
+          "count": 12,
+          "injection_suspected": false,
+          "redactions": 0
+        },
+        "status": "OK",
+        "tool_name": "get_evidence_summaries"
+      }
+    ]
+  },
+  "simulator": {
+    "counts": {
+      "assets": 12,
+      "audit_events": 16,
+      "data_scopes": 3,
+      "evidence_references": 12,
+      "memberships": 4,
+      "operational_impacts": 3,
+      "service_dependencies": 8,
+      "services": 3,
+      "tasks": 6,
+      "users": 4
+    },
+    "phase": "injected",
+    "scenario_id": "hospital_ransomware_v1",
+    "state_sha256": "6aad55610eb74e8744b0f137c6f58a7af6f1750ca5ff316d82d582d133ee4d5c",
+    "verify_ok": true
+  },
+  "why_not_live": "No NVIDIA_API_KEY was available. The NVIDIA OpenAI-compatible protocol was exercised against a local httpx MockTransport test double."
+}

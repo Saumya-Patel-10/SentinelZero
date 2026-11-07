@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.log
+# Never commit JWT signing keys or tokens.
+*.pem
+id_ecdsa*
+.env*
