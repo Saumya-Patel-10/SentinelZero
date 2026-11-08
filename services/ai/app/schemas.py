@@ -82,9 +82,11 @@ class ToolCallRecord(_StrictModel):
     tool_name: Annotated[str, Field(max_length=60)]
     input_summary: dict[str, object] = Field(default_factory=dict)
     output_summary: dict[str, object] = Field(default_factory=dict)
-    status: Literal["OK", "ERROR"] = "OK"
+    # DENIED = the tool was outside the (sub-)agent allowlist and never executed.
+    status: Literal["OK", "ERROR", "DENIED"] = "OK"
     timestamp: datetime
     duration_ms: int = Field(ge=0)
+    subagent: Annotated[str | None, Field(max_length=40)] = None
 
 
 class ProviderCallRecord(_StrictModel):
@@ -97,6 +99,7 @@ class ProviderCallRecord(_StrictModel):
     tool_calls: int = Field(default=0, ge=0)
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
+    subagent: Annotated[str | None, Field(max_length=40)] = None
 
 
 class FactDraft(_StrictModel):
@@ -139,18 +142,28 @@ class ProposedActionDraft(_StrictModel):
 
 
 class RecommendationDraft(_StrictModel):
-    title: ShortText
+    # Bounds mirror the agent_submit_recommendation reducer (packages/shared/src/limits.ts):
+    # title 3..200, description <=5000, rationale 10..4000.
+    title: Annotated[str, Field(min_length=3, max_length=160)]
     description: Annotated[str, Field(min_length=10, max_length=5000)]
     priority: TaskPriority
-    rationale: MediumText
+    rationale: Annotated[str, Field(min_length=10, max_length=600)]
     facts: list[FactDraft] = Field(default_factory=list, max_length=50)
     uncertainties: list[UncertaintyDraft] = Field(default_factory=list, max_length=50)
     proposed_actions: list[ProposedActionDraft] = Field(default_factory=list, max_length=10)
+    limitations: list[Annotated[str, Field(min_length=1, max_length=300)]] = Field(
+        default_factory=list, max_length=10
+    )
 
     @field_validator("title", "description", "rationale")
     @classmethod
     def _text(cls, value: str) -> str:
         return _clean(value, field="recommendation", limit=5000)
+
+    @field_validator("limitations")
+    @classmethod
+    def _limitations(cls, value: list[str]) -> list[str]:
+        return [_clean(item, field="limitation", limit=300) for item in value]
 
 
 class Recommendation(_StrictModel):
@@ -160,19 +173,42 @@ class Recommendation(_StrictModel):
     organization_id: ShortText
     agent_run_id: ShortText
     title: ShortText
-    description: LongText
+    description: Annotated[str, Field(min_length=1, max_length=5000)]
     priority: TaskPriority
     rationale: MediumText
     inference_mode: InferenceMode
     model_identifier: Annotated[str, Field(max_length=120)]
     status: RecommendationStatus = "PENDING"
-    evidence_ids: list[EvidenceId] = Field(default_factory=list, max_length=32)
-    uncertainties: list[str] = Field(default_factory=list, max_length=32)
+    evidence_ids: list[EvidenceId] = Field(default_factory=list, max_length=20)
+    facts: list[FactDraft] = Field(default_factory=list, max_length=50)
+    uncertainties: list[UncertaintyDraft] = Field(default_factory=list, max_length=50)
+    proposed_actions: list[ProposedActionDraft] = Field(default_factory=list, max_length=10)
+    requires_human_approval: Literal[True] = True
     created_at: datetime
     decided_by: Annotated[str | None, Field(max_length=200)] = None
     decided_at: datetime | None = None
     decision_reason: Annotated[str, Field(max_length=1000)] = ""
     created_task_id: Annotated[str | None, Field(max_length=64)] = None
+
+
+SubagentName = Literal["triage", "impact", "containment", "communications"]
+SubagentStatus = Literal["PENDING", "RUNNING", "COMPLETED", "FAILED", "SKIPPED"]
+SUBAGENT_ORDER: tuple[SubagentName, ...] = ("triage", "impact", "containment", "communications")
+
+
+class SubagentRecord(_StrictModel):
+    """Per-specialist progress (frozen web contract; order is SUBAGENT_ORDER)."""
+
+    name: SubagentName
+    status: SubagentStatus = "PENDING"
+    summary: Annotated[str, Field(max_length=600)] = ""
+    tool_calls: int = Field(default=0, ge=0)
+    provider_calls: int = Field(default=0, ge=0)
+    latency_ms: int = Field(default=0, ge=0)
+
+
+def initial_subagents(status: SubagentStatus = "PENDING") -> list[SubagentRecord]:
+    return [SubagentRecord(name=name, status=status) for name in SUBAGENT_ORDER]
 
 
 class RunRecord(_StrictModel):
@@ -193,11 +229,14 @@ class RunRecord(_StrictModel):
     error_category: Annotated[str | None, Field(max_length=60)] = None
     error_message: Annotated[str | None, Field(max_length=300)] = None
     summary: Annotated[str, Field(max_length=5000)] = ""
-    tool_calls: list[ToolCallRecord] = Field(default_factory=list, max_length=32)
-    provider_calls: list[ProviderCallRecord] = Field(default_factory=list, max_length=16)
+    tool_calls: list[ToolCallRecord] = Field(default_factory=list, max_length=40)
+    provider_calls: list[ProviderCallRecord] = Field(default_factory=list, max_length=32)
     recommendation: Recommendation | None = None
     injection_suspected: bool = False
     redaction_counts: dict[str, int] = Field(default_factory=dict)
+    agent_mode: Literal["orchestrated", "single"] = "orchestrated"
+    subagents: list[SubagentRecord] = Field(default_factory=initial_subagents, max_length=4)
+    sitrep: Annotated[str, Field(max_length=2000)] = ""
 
 
 class ErrorBody(_StrictModel):
