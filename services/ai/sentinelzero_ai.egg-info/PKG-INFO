@@ -1,0 +1,16 @@
+Metadata-Version: 2.4
+Name: sentinelzero-ai
+Version: 0.1.0
+Summary: SentinelZero authenticated AI incident-analysis service (NVIDIA Nemotron, tool use, proposals only).
+Requires-Python: >=3.12
+Requires-Dist: fastapi==0.162.2
+Requires-Dist: uvicorn==0.54.0
+Requires-Dist: httpx==0.28.1
+Requires-Dist: pydantic==2.14.3
+Requires-Dist: pydantic-settings==2.16.2
+Requires-Dist: PyJWT==2.15.1
+Provides-Extra: dev
+Requires-Dist: pytest==9.2.0; extra == "dev"
+Requires-Dist: pytest-asyncio==1.4.1.post1; extra == "dev"
+Requires-Dist: pytest-cov==7.17.2; extra == "dev"
+Requires-Dist: anyio==4.16.0; extra == "dev"
