@@ -42,7 +42,7 @@ def _live_provider() -> tuple[NemotronProvider, object]:
     os.environ.get("AI_LIVE_TESTS") != "1",
     reason="set AI_LIVE_TESTS=1 to explicitly allow paid live inference",
 )
-async def test_live_nemotron_tool_round_trip(app_factory, client_factory, state):
+async def test_live_nemotron_tool_round_trip(app_factory, client_factory, stdb):
     provider, settings = _live_provider()
     descriptor = provider.descriptor
     assert descriptor.configured is True
@@ -53,21 +53,24 @@ async def test_live_nemotron_tool_round_trip(app_factory, client_factory, state)
     client = await client_factory(app)
     headers = auth_headers()
 
+    run_id = "run_live_nvidia_001"
+    stdb.set_run(run_id, status="REQUESTED", inference_mode="LIVE", model_identifier=MODEL)
     accepted = await client.post(
         f"/v1/incidents/{INCIDENT}/analyze",
-        json={"focus": "Preserve uncertainty about exfiltration."},
+        json={"incident_id": INCIDENT, "run_id": run_id, "analysis_type": "intake"},
         headers=headers,
     )
 
     assert accepted.status_code == 202, accepted.text
     body = accepted.json()
-    assert body["live_inference"] is True
-    assert body["inference_label"] == "LIVE_NVIDIA_INFERENCE"
+    assert body["run_id"] == run_id
+    assert body["inference_mode"] == "LIVE"
+    assert body["model_identifier"] == MODEL
 
-    run = await wait_for_run(client, body["run_id"], headers, timeout=180.0)
+    run = await wait_for_run(client, run_id, headers, timeout=180.0)
 
     assert run["status"] == "COMPLETED", run.get("error_category") or run.get("error_message")
-    assert run["inference_label"] == "LIVE_NVIDIA_INFERENCE"
+    assert run["inference_mode"] == "LIVE"
     assert run["truthfulness"]["live_inference"] is True
     assert len(run["provider_calls"]) >= 2
     assert run["tool_calls"], "the live model did not perform the required tool round trip"
@@ -80,8 +83,8 @@ async def test_live_nemotron_tool_round_trip(app_factory, client_factory, state)
     }
     recommendation = run["recommendation"]
     assert recommendation is not None
-    assert recommendation["approval_status"] == "PENDING_HUMAN_APPROVAL"
-    assert all(task["requires_human_approval"] is True for task in recommendation["proposed_tasks"])
+    assert recommendation["status"] == "PENDING"
+    assert recommendation["requires_human_approval"] is True
     assert "nvapi-" not in str(run)
 
 
