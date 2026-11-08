@@ -16,8 +16,9 @@ from app.tools.registry import ToolContext
 
 async def get_incident(ctx: ToolContext, _args: dict[str, Any]) -> tuple[Any, list[str], dict[str, Any]]:
     incident = await ctx.backend.agent_get_incident(ctx.run_id)
-    # Double-check tenant + incident scope at the tool boundary.
-    if incident.incident_id != ctx.incident_id or incident.organization_id != ctx.organization_id:
+    # Defense in depth: the procedure is run-scoped (and therefore tenant-scoped)
+    # server-side; the returned record must still match the authorized run.
+    if incident.incident_id != ctx.incident_id or incident.run_id != ctx.run_id:
         raise ValueError("Tool scope violation")
     data = asdict(incident)
     return data, [], {"incident_status": incident.status, "severity": incident.severity}
@@ -25,9 +26,6 @@ async def get_incident(ctx: ToolContext, _args: dict[str, Any]) -> tuple[Any, li
 
 async def get_assets(ctx: ToolContext, _args: dict[str, Any]) -> tuple[Any, list[str], dict[str, Any]]:
     assets = await ctx.backend.agent_get_assets(ctx.run_id)
-    for asset in assets:
-        # AgentAsset doesn't carry organization_id; scope is enforced by the procedure.
-        pass
     data = [asdict(asset) for asset in assets]
     compromise = Counter(asset.compromise_status for asset in assets)
     availability = Counter(asset.availability_status for asset in assets)
