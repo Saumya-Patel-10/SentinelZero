@@ -8,7 +8,7 @@ import { SeverityBadge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { CreateIncidentModal } from '../components/incidents/CreateIncidentModal';
 import { TaskBoard } from '../components/tasks/TaskBoard';
-import { Clock, Network, Plus, User } from 'lucide-react';
+import { Clock, Database, Network, Plus, ShieldAlert, User, Users } from 'lucide-react';
 
 export const CommandCenterPage: React.FC = () => {
   const { incident } = useIncidents();
@@ -39,7 +39,7 @@ export const CommandCenterPage: React.FC = () => {
           <div className="flex flex-wrap items-center gap-4 text-xs font-mono text-slate-400 pt-1">
             <span className="flex items-center gap-1.5">
               <User className="w-3.5 h-3.5 text-cyan-400" />
-              Commander: <strong className="text-slate-200">{incident.commander_identity}</strong>
+              Commander: <strong className="text-slate-200">Saumya</strong> <span className="text-slate-500">({incident.commander_identity})</span>
             </span>
             <span className="flex items-center gap-1.5">
               <Clock className="w-3.5 h-3.5 text-slate-400" />
@@ -49,23 +49,43 @@ export const CommandCenterPage: React.FC = () => {
         </div>
 
         <div className="flex flex-col sm:flex-row md:flex-col gap-2 shrink-0">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setCurrentView('IMPACT_GRAPH')}
-            icon={<Network className="w-4 h-4 text-cyan-400" />}
-          >
-            Open Impact Graph
-          </Button>
-          {isCommander && (
+          <div className="flex gap-2">
             <Button
-              variant="secondary"
+              variant="outline"
               size="sm"
-              onClick={() => setCreateIncidentOpen(true)}
-              icon={<Plus className="w-4 h-4" />}
+              onClick={() => setCurrentView('IMPACT_GRAPH')}
+              icon={<Network className="w-4 h-4 text-cyan-400" />}
             >
-              Declare New Incident
+              Impact Graph
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentView('DATA_SCOPES')}
+              icon={<Database className="w-4 h-4 text-amber-400" />}
+            >
+              Scope Ledger
+            </Button>
+          </div>
+          {isCommander && (
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentView('TEAM_ACCESS')}
+                icon={<Users className="w-4 h-4 text-purple-400" />}
+              >
+                Access Control
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setCreateIncidentOpen(true)}
+                icon={<Plus className="w-4 h-4" />}
+              >
+                Declare Incident
+              </Button>
+            </div>
           )}
         </div>
       </div>
