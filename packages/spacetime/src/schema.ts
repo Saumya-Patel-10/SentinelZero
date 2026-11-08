@@ -24,6 +24,22 @@ export const trustedIssuer = table(
   }
 );
 
+/**
+ * Accepted `aud` values per trusted issuer. An issuer with no rows here is accepted for any
+ * audience (weaker; production deployments must configure at least one).
+ */
+export const trustedAudience = table(
+  { name: 'trusted_audience' },
+  {
+    /** `${issuer}\n${audience}` */
+    key: t.string().primaryKey(),
+    issuer: t.string().index('btree'),
+    audience: t.string(),
+    addedBy: t.identity(),
+    addedAt: t.timestamp(),
+  }
+);
+
 export const organization = table(
   { name: 'organization' },
   {
@@ -376,6 +392,7 @@ export const rateLimit = table(
 const spacetimedb = schema({
   platformAdmin,
   trustedIssuer,
+  trustedAudience,
   organization,
   userProfile,
   membership,
