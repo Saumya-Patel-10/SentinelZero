@@ -143,7 +143,7 @@ export interface DataScope {
   organization_id: string;
   incident_id: string;
   asset_id: string;
-  data_category: 'PHI' | 'PII' | 'FINANCIAL' | 'INTELLECTUAL_PROPERTY' | 'OPERATIONAL_LOGS';
+  data_category: 'PHI' | 'PII' | 'FINANCIAL' | 'CREDENTIALS' | 'INTELLECTUAL_PROPERTY' | 'OPERATIONAL_LOGS';
   sensitivity: 'RESTRICTED' | 'CONFIDENTIAL' | 'INTERNAL' | 'PUBLIC';
   lock_status: VerificationStatus;
   exfiltration_status: VerificationStatus;
