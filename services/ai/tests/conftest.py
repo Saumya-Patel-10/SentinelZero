@@ -35,6 +35,7 @@ def test_settings(**overrides: Any) -> Settings:
     base = {
         "environment": "test",
         "provider_mode": "scripted",
+        "agent_mode": "orchestrated",
         "stdb_db_name": "sentinelzero",
         "backend_service_token": "test-service-token",
         "rate_limit_per_minute": 100,
@@ -102,6 +103,8 @@ class FakeSpacetimeDB:
         self.run_status: dict[str, str] = {}
         self.run_inference_mode: dict[str, str] = {}
         self.run_model_identifier: dict[str, str] = {}
+        self._incident_id: dict[str, str] = {}
+        self._organization_id: dict[str, str] = {}
 
     def on(self, name: str, handler: Callable[[list[Any]], Any]) -> None:
         self.handlers[name] = handler
@@ -121,10 +124,6 @@ class FakeSpacetimeDB:
         self.run_model_identifier[run_id] = model_identifier
         self._incident_id[run_id] = incident_id
         self._organization_id[run_id] = organization_id
-
-    # internal
-    _incident_id: dict[str, str] = {}
-    _organization_id: dict[str, str] = {}
 
     async def __call__(self, request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content.decode("utf-8"))
@@ -162,19 +161,21 @@ class FakeSpacetimeDB:
 def make_fake_stdb() -> FakeSpacetimeDB:
     stdb = FakeSpacetimeDB()
 
-    # Default handlers
-    stdb.on(
-        "verify_agent_run_access",
-        lambda args: [
+    def verify_access(args: list[Any]) -> list[Any]:
+        run_id = args[0] if args else "run_test"
+        return [
             True,
             True,
             "ANALYST",
-            args[0] if args else "run_test",
-            INCIDENT,
-            ORG,
-            "REQUESTED",
-        ],
-    )
+            run_id,
+            stdb._incident_id.get(run_id, INCIDENT),
+            stdb._organization_id.get(run_id, ORG),
+            stdb.run_status.get(run_id, "REQUESTED"),
+        ]
+
+    # Default handlers. Status and incident come from set_run so a RUNNING or
+    # cross-incident run is actually denied.
+    stdb.on("verify_agent_run_access", verify_access)
     stdb.on("agent_claim_run", lambda args: None)
     stdb.on("agent_get_incident", lambda args: _fake_incident(args[0] if args else ""))
     stdb.on("agent_get_assets", lambda args: _fake_assets(args[0] if args else ""))
@@ -256,15 +257,13 @@ def _fake_evidence(run_id: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture()
 def stdb() -> FakeSpacetimeDB:
     return make_fake_stdb()
 
 
 @pytest.fixture()
-async def app_factory(stdb: FakeSpacetimeDB | None = None):
-    if stdb is None:
-        stdb = make_fake_stdb()
+async def app_factory(stdb: FakeSpacetimeDB):
     apps = []
 
     def make(
@@ -272,13 +271,16 @@ async def app_factory(stdb: FakeSpacetimeDB | None = None):
         settings: Settings | None = None,
         provider: Any | None = None,
     ):
-        application = create_app(settings=settings or test_settings())
+        application = create_app(settings=settings or test_settings(), provider=provider)
         # Replace the backend with a SpacetimeDB client pointed at the fake.
         backend = SpacetimeDBBackendClient(
             application.state.settings, transport=stdb.transport
         )
         application.state.backend = backend
         application.state.runtime.backend = backend
+        if provider is not None:
+            application.state.provider = provider
+            application.state.runtime.provider = provider
         apps.append(application)
         return application
 
