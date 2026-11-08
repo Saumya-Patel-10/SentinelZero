@@ -197,6 +197,16 @@ export const AuditEvent = __t.object("AuditEvent", {
 });
 export type AuditEvent = __Infer<typeof AuditEvent>;
 
+export const BackendInfo = __t.object("BackendInfo", {});
+export type BackendInfo = __Infer<typeof BackendInfo>;
+
+export const BackendInfoRow = __t.object("BackendInfoRow", {
+  contractVersion: __t.string(),
+  issuerPolicyEnforced: __t.bool(),
+  trustedIssuerCount: __t.u32(),
+});
+export type BackendInfoRow = __Infer<typeof BackendInfoRow>;
+
 export const DataScope = __t.object("DataScope", {
   id: __t.string(),
   organizationId: __t.string(),
@@ -307,6 +317,9 @@ export type MyAgentToolCalls = __Infer<typeof MyAgentToolCalls>;
 export const MyAssets = __t.object("MyAssets", {});
 export type MyAssets = __Infer<typeof MyAssets>;
 
+export const MyAuditChainHeads = __t.object("MyAuditChainHeads", {});
+export type MyAuditChainHeads = __Infer<typeof MyAuditChainHeads>;
+
 export const MyAuditEvents = __t.object("MyAuditEvents", {});
 export type MyAuditEvents = __Infer<typeof MyAuditEvents>;
 
@@ -318,6 +331,9 @@ export type MyEvidence = __Infer<typeof MyEvidence>;
 
 export const MyIncidentSummaries = __t.object("MyIncidentSummaries", {});
 export type MyIncidentSummaries = __Infer<typeof MyIncidentSummaries>;
+
+export const MyIncidentTimeline = __t.object("MyIncidentTimeline", {});
+export type MyIncidentTimeline = __Infer<typeof MyIncidentTimeline>;
 
 export const MyIncidents = __t.object("MyIncidents", {});
 export type MyIncidents = __Infer<typeof MyIncidents>;
@@ -493,6 +509,28 @@ export const Task = __t.object("Task", {
   idempotencyKey: __t.string(),
 });
 export type Task = __Infer<typeof Task>;
+
+export const TimelineEntry = __t.object("TimelineEntry", {
+  id: __t.string(),
+  organizationId: __t.string(),
+  incidentId: __t.string(),
+  seq: __t.u64(),
+  actorIdentity: __t.identity(),
+  actorKind: __t.string(),
+  eventType: __t.string(),
+  targetId: __t.string(),
+  timestamp: __t.timestamp(),
+});
+export type TimelineEntry = __Infer<typeof TimelineEntry>;
+
+export const TrustedAudience = __t.object("TrustedAudience", {
+  key: __t.string(),
+  issuer: __t.string(),
+  audience: __t.string(),
+  addedBy: __t.identity(),
+  addedAt: __t.timestamp(),
+});
+export type TrustedAudience = __Infer<typeof TrustedAudience>;
 
 export const TrustedIssuer = __t.object("TrustedIssuer", {
   issuer: __t.string(),
