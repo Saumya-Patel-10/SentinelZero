@@ -9,6 +9,8 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       '@shared': path.resolve(__dirname, '../../packages/shared/src'),
+      '@bindings': path.resolve(__dirname, '../../packages/spacetime/bindings'),
+      'motion/react': path.resolve(__dirname, './node_modules/framer-motion'),
     },
   },
   server: {

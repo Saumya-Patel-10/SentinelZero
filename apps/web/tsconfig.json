@@ -5,7 +5,7 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "skipLibCheck": true,
-    "types": ["vite/client"],
+    "types": ["vite/client", "node"],
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
@@ -18,8 +18,12 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"],
-      "@shared/*": ["../../packages/shared/src/*"]
+      "@shared/*": ["../../packages/shared/src/*"],
+      "@shared": ["../../packages/shared/src/index.ts"],
+      "@bindings/*": ["../../packages/spacetime/bindings/*"],
+      "@bindings": ["../../packages/spacetime/bindings/index.ts"],
+      "motion/react": ["node_modules/framer-motion"]
     }
   },
-  "include": ["src", "../../packages/shared/src"]
+  "include": ["src"]
 }
