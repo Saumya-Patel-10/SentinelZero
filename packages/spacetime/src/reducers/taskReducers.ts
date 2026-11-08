@@ -3,7 +3,8 @@ import spacetimedb from '../schema';
 import { fail } from '../security/context';
 import { appendAudit } from '../security/audit';
 import { requireIncidentCapability } from '../security/membership';
-import { expectVersion, idempotencyKey, oneOf, text } from '../security/validation';
+import { consumeRateLimit } from '../security/rateLimit';
+import { expectVersion, idempotencyKey, oneOf, requireOpenIncident, text } from '../security/validation';
 import { insertTask, requireAssignable } from '../workflows/tasks';
 import { TASK_PRIORITIES, TASK_STATUSES, type ApprovalStatus, type Role, type TaskStatus } from '../../../shared/src/enums';
 import { decideApproval, isValidTaskTransition } from '../../../shared/src/taskLifecycle';
@@ -22,7 +23,7 @@ export const create_task = spacetimedb.reducer(
   },
   (ctx, a) => {
     const { incident, membership } = requireIncidentCapability(ctx, a.incidentId, 'CREATE_TASK');
-    if (incident.status === 'CLOSED') fail('INVALID_TRANSITION', 'closed incidents are read-only; reopen first');
+    requireOpenIncident(incident.status);
     text('title', a.title, LIMITS.TITLE);
     text('description', a.description, LIMITS.DESCRIPTION);
     oneOf('priority', TASK_PRIORITIES, a.priority);
@@ -35,6 +36,7 @@ export const create_task = spacetimedb.reducer(
       if (existing.createdBy.isEqual(ctx.sender)) return; // idempotent replay
       fail('VALIDATION_FAILED', 'idempotencyKey already used');
     }
+    consumeRateLimit(ctx, 'incident_write');
 
     // Approvers creating a task that "requires approval" still go through explicit approval.
     const id = insertTask(ctx, {
@@ -67,10 +69,12 @@ export const assign_task = spacetimedb.reducer(
   (ctx, a) => {
     const task = ctx.db.task.id.find(a.taskId);
     if (!task) fail('NOT_FOUND', 'task not found');
-    requireIncidentCapability(ctx, task.incidentId, 'ASSIGN_TASK');
+    const { incident } = requireIncidentCapability(ctx, task.incidentId, 'ASSIGN_TASK');
+    requireOpenIncident(incident.status);
     expectVersion('task', task.version, a.expectedVersion);
     if (task.status === 'COMPLETED' || task.status === 'CANCELLED') fail('INVALID_TRANSITION', 'task is closed');
     requireAssignable(ctx, task.organizationId, a.assignedIdentity);
+    consumeRateLimit(ctx, 'incident_write');
     ctx.db.task.id.update({ ...task, assignedIdentity: a.assignedIdentity, updatedAt: ctx.timestamp, version: task.version + 1 });
     appendAudit(ctx, {
       organizationId: task.organizationId,
@@ -89,16 +93,18 @@ export const update_task_status = spacetimedb.reducer(
     const task = ctx.db.task.id.find(a.taskId);
     if (!task) fail('NOT_FOUND', 'task not found');
     // Any detail-level member may attempt; capability is then narrowed below.
-    const { membership } = requireIncidentCapability(ctx, task.incidentId, 'VIEW_TASKS');
+    const { incident, membership } = requireIncidentCapability(ctx, task.incidentId, 'VIEW_TASKS');
     const role = membership.role as Role;
     const isAssignee = task.assignedIdentity !== undefined && task.assignedIdentity.isEqual(ctx.sender);
     if (!isAssignee && !roleHas(role, 'UPDATE_ANY_TASK')) fail('ACCESS_DENIED', 'only the assignee or an analyst/commander may update this task');
+    requireOpenIncident(incident.status);
 
     expectVersion('task', task.version, a.expectedVersion);
     const to = oneOf('toStatus', TASK_STATUSES, a.toStatus);
     text('note', a.note, { min: 0, max: LIMITS.REASON.max });
     if (to === 'CANCELLED' && !roleHas(role, 'CANCEL_TASK')) fail('ACCESS_DENIED', `role ${role} cannot cancel tasks`);
     if (!isValidTaskTransition(task.status as TaskStatus, to)) fail('INVALID_TRANSITION', `${task.status} -> ${to} is not allowed`);
+    consumeRateLimit(ctx, 'incident_write');
 
     ctx.db.task.id.update({ ...task, status: to, updatedAt: ctx.timestamp, version: task.version + 1 });
     appendAudit(ctx, {
@@ -116,11 +122,13 @@ function decide(decision: 'APPROVE' | 'REJECT') {
   return spacetimedb.reducer({ taskId: t.string(), reason: t.string() }, (ctx, a) => {
     const task = ctx.db.task.id.find(a.taskId);
     if (!task) fail('NOT_FOUND', 'task not found');
-    requireIncidentCapability(ctx, task.incidentId, 'APPROVE_TASK');
+    const { incident } = requireIncidentCapability(ctx, task.incidentId, 'APPROVE_TASK');
     text('reason', a.reason, decision === 'REJECT' ? LIMITS.REASON : { min: 0, max: LIMITS.REASON.max });
     const outcome = decideApproval(task.approvalStatus as ApprovalStatus, decision);
     if (outcome.kind === 'NOOP') return; // repeated decision is idempotent
     if (outcome.kind === 'CONFLICT') fail('INVALID_TRANSITION', outcome.reason);
+    requireOpenIncident(incident.status);
+    consumeRateLimit(ctx, 'incident_write');
     ctx.db.task.id.update({
       ...task,
       status: outcome.status,
