@@ -11,6 +11,8 @@ export const KPIOverview: React.FC = () => {
   const { awaitingApproval } = useTasks();
   const { summary } = useGraphStore();
   const setCurrentView = useUIStore((s) => s.setCurrentView);
+  const serviceLabels = [...new Set(impacts.map((impact) => impact.service_id))].slice(0, 3);
+  const groupLabels = [...new Set(impacts.flatMap((impact) => impact.affected_groups))].slice(0, 3);
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
@@ -35,7 +37,7 @@ export const KPIOverview: React.FC = () => {
       <AnimatedStatCard
         title="SERVICES DISRUPTED"
         value={impacts.length}
-        change="EHR, Imaging, Pharmacy"
+        change={serviceLabels.join(', ') || 'None recorded'}
         icon={Activity}
         tone="cyan"
         onClick={() => setCurrentView('IMPACT_GRAPH')}
@@ -44,7 +46,7 @@ export const KPIOverview: React.FC = () => {
       <AnimatedStatCard
         title="AFFECTED HUMAN GROUPS"
         value={summary.humanGroupsAffected}
-        change="Emergency, ICU, Surgery"
+        change={groupLabels.join(', ') || 'None recorded'}
         icon={Users}
         tone="violet"
         onClick={() => setCurrentView('IMPACT_GRAPH')}
