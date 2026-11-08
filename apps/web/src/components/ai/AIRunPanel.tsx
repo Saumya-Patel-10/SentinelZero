@@ -18,14 +18,14 @@ import { Button } from '../ui/Button';
 import { ExerciseBadge } from '../ui/Badge';
 import { SubagentPipeline } from './SubagentPipeline';
 import { TaskPriority } from '../../services/contracts';
-import { AlertTriangle, Clock, Cpu, FileText, Lock, Play, ShieldAlert, Sparkles, Square, Terminal } from 'lucide-react';
+import { AlertTriangle, Clock, Cpu, FileText, Lock, Minus, Play, ShieldAlert, Sparkles, Square, Terminal, X } from 'lucide-react';
 
 type Phase = 'idle' | 'running' | 'done' | 'error';
 
 const ANALYSIS_OPTIONS: Array<{ value: AnalysisType; label: string }> = [
-  { value: 'intake', label: 'Intake (triage + initial impact)' },
-  { value: 'impact', label: 'Impact (services + data exposure)' },
-  { value: 'response', label: 'Response (containment + comms)' },
+  { value: 'intake', label: 'Intake: Triage & CISA KEV Threat Intel' },
+  { value: 'impact', label: 'Impact: Cyber-to-Human & PHI Scope' },
+  { value: 'response', label: 'Response: Containment & Remediation Planner' },
 ];
 
 const PRIORITY_TO_TASK: Record<AIRecommendation['priority'], TaskPriority> = {
@@ -79,6 +79,8 @@ export const AIRunPanel: React.FC = () => {
   const { role, canRequestAgentRun, canViewAgentActivity, can } = useAuth();
   const isAIPanelOpen = useUIStore((s) => s.isAIPanelOpen);
   const setAIPanelOpen = useUIStore((s) => s.setAIPanelOpen);
+  const isAIMinimized = useUIStore((s) => s.isAIMinimized);
+  const setAIMinimized = useUIStore((s) => s.setAIMinimized);
   const prefersReducedMotion = useUIStore((s) => s.prefersReducedMotion);
 
   const [analysisType, setAnalysisType] = useState<AnalysisType>('intake');
@@ -98,7 +100,10 @@ export const AIRunPanel: React.FC = () => {
     };
   }, []);
 
-  const closePanel = useCallback(() => setAIPanelOpen(false), [setAIPanelOpen]);
+  const closePanel = useCallback(() => {
+    setAIPanelOpen(false);
+    setAIMinimized(false);
+  }, [setAIPanelOpen, setAIMinimized]);
 
   const handleRunAnalysis = async () => {
     if (!incident || !canRequestAgentRun || phase === 'running') return;
@@ -157,33 +162,83 @@ export const AIRunPanel: React.FC = () => {
   const isRunning = phase === 'running';
 
   return (
-    <Modal
-      isOpen={isAIPanelOpen}
-      onClose={closePanel}
-      title="NVIDIA Nemotron Incident Copilot"
-      subtitle="Four read-only Nemotron sub-agents (triage, impact, containment, communications). Output is a proposal only; every recommendation stays PENDING until the Incident Commander decides."
-      maxWidth="2xl"
-      testId="ai-run-panel-dialog"
-    >
-      <div data-testid="ai-run-panel" className="space-y-5">
-        {/* Screen-reader status channel */}
-        <div role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-testid="ai-run-live-status">
-          {isRunning && !run ? 'Analysis requested.' : run ? describeRun(run) : ''}
-          {error ? ` ${ERROR_TITLES[error.kind]}.` : ''}
-        </div>
-
-        {!canViewAgentActivity ? (
-          <div
-            data-testid="ai-run-forbidden"
-            className="flex items-start gap-2 p-3.5 rounded-lg border border-slate-700 bg-sz-bg-base text-xs text-slate-300"
-          >
-            <Lock className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" aria-hidden="true" />
-            <p>
-              Your role (<strong className="font-mono">{role}</strong>) cannot request or view AI analysis. Only Owner, Incident
-              Commander, and Analyst roles may use the copilot.
+    <>
+      {/* Minimized Dockable Bar */}
+      {isAIPanelOpen && isAIMinimized && (
+        <div
+          data-testid="ai-minimized-dock"
+          className="fixed bottom-4 right-4 z-50 bg-sz-bg-surface/95 border border-cyan-500/60 shadow-2xl rounded-lg p-3 backdrop-blur-md flex items-center gap-3 animate-fade-in text-xs font-sans"
+        >
+          <div className="w-8 h-8 rounded-lg bg-cyan-950 border border-cyan-500/40 flex items-center justify-center text-cyan-300">
+            <Cpu className={`w-4 h-4 ${isRunning ? 'animate-spin text-cyan-400' : 'text-cyan-300'}`} />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-mono font-bold text-slate-100">Nemotron</span>
+              {isRunning && (
+                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-950/80 border border-amber-600/50 text-amber-300 animate-pulse">
+                  ANALYZING
+                </span>
+              )}
+              {phase === 'done' && (
+                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-950/80 border border-emerald-600/50 text-emerald-300">
+                  READY
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-400 truncate max-w-[200px]">
+              {isRunning ? 'Sub-agent workflow active...' : showRecommendation ? 'Proposal ready for review' : 'Standby'}
             </p>
           </div>
-        ) : (
+          <div className="flex items-center gap-1.5 ml-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setAIMinimized(false)}
+              className="text-xs font-mono h-7 px-2 border-cyan-500/40 text-cyan-300"
+            >
+              Restore
+            </Button>
+            <button
+              onClick={closePanel}
+              className="p-1 text-slate-400 hover:text-slate-100"
+              aria-label="Close"
+              title="Close Nemotron"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      <Modal
+        isOpen={isAIPanelOpen && !isAIMinimized}
+        onClose={closePanel}
+        onMinimize={() => setAIMinimized(true)}
+        title="NVIDIA Nemotron AI Command"
+        subtitle="Multi-agent pipeline (Triage, Impact, Containment, Communications) grounded in NIST SP 800-61. Output is a proposal only; every recommendation stays PENDING until the Incident Commander decides."
+        maxWidth="2xl"
+        testId="ai-run-panel-dialog"
+      >
+        <div data-testid="ai-run-panel" className="space-y-5">
+          {/* Screen-reader status channel */}
+          <div role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-testid="ai-run-live-status">
+            {isRunning && !run ? 'Analysis requested.' : run ? describeRun(run) : ''}
+            {error ? ` ${ERROR_TITLES[error.kind]}.` : ''}
+          </div>
+
+          {!canViewAgentActivity ? (
+            <div
+              data-testid="ai-run-forbidden"
+              className="flex items-start gap-2 p-3.5 rounded-lg border border-slate-700 bg-sz-bg-base text-xs text-slate-300"
+            >
+              <Lock className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" aria-hidden="true" />
+              <p>
+                Your role (<strong className="font-mono">{role}</strong>) cannot request or view AI analysis. Only Owner, Incident
+                Commander, and Analyst roles may run Nemotron.
+              </p>
+            </div>
+          ) : (
           <>
             {/* Run Controls */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-lg bg-sz-bg-base border border-sz-bg-border">
@@ -381,6 +436,7 @@ export const AIRunPanel: React.FC = () => {
         )}
       </div>
     </Modal>
+    </>
   );
 };
 
