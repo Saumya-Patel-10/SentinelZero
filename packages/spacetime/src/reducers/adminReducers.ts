@@ -4,8 +4,8 @@ import { fail, newId } from '../security/context';
 import { appendAudit } from '../security/audit';
 import {
   activeMembership,
-  activeMembershipsOf,
   activeServicePrincipal,
+  hasUnrevokedMembership,
   isAnyActiveServicePrincipal,
   isPlatformAdmin,
   isUserDisabled,
@@ -187,11 +187,13 @@ export const revoke_member = spacetimedb.reducer(
     text('reason', reason, LIMITS.REASON);
     if (m.revokedAt !== undefined) return; // idempotent
     if (m.role === 'OWNER') {
-      let owners = 0;
+      // Disabled owners cannot act, so they do not keep the organization manageable.
+      let remainingOwners = 0;
       for (const other of ctx.db.membership.by_org_user.filter(m.organizationId)) {
-        if (other.role === 'OWNER' && other.revokedAt === undefined) owners++;
+        if (other.id === m.id || other.role !== 'OWNER' || other.revokedAt !== undefined) continue;
+        if (!isUserDisabled(ctx.db, other.userIdentity)) remainingOwners++;
       }
-      if (owners <= 1) fail('VALIDATION_FAILED', 'cannot revoke the last OWNER');
+      if (remainingOwners === 0) fail('VALIDATION_FAILED', 'cannot revoke the last OWNER');
     }
     ctx.db.membership.id.update({ ...m, revokedAt: ctx.timestamp, revokedBy: ctx.sender, revokeReason: reason });
     appendAudit(ctx, {
@@ -210,7 +212,7 @@ export const register_service_principal = spacetimedb.reducer(
     requireOrgCapability(ctx, organizationId, 'MANAGE_SERVICE_PRINCIPALS');
     text('label', label, LIMITS.SHORT_TEXT);
     if (identity.isEqual(ctx.sender)) fail('VALIDATION_FAILED', 'cannot register yourself as a service principal');
-    if (activeMembershipsOf(ctx.db, identity).length > 0) fail('VALIDATION_FAILED', 'identity holds a human membership');
+    if (hasUnrevokedMembership(ctx.db, identity)) fail('VALIDATION_FAILED', 'identity holds a human membership');
     if (isPlatformAdmin(ctx.db, identity)) fail('VALIDATION_FAILED', 'platform admins cannot be service principals');
     if (activeServicePrincipal(ctx.db, organizationId, identity)) return; // idempotent
     const id = newId(ctx);
