@@ -19,9 +19,15 @@ describe('trusted issuer allowlist', () => {
       const http = await httpCall(await mintToken(), 'register_profile', ['blocked user']);
       expect(http.status).toBeGreaterThanOrEqual(400);
 
+      // Trusting the server's own issuer re-admits self-minted identities over WebSocket (the host
+      // re-issues them with a 60 s exp); only HTTP calls see the missing `exp`. Never trust the
+      // server's own issuer in a deployment.
       await admin.conn.reducers.addTrustedIssuer({ issuer: localIssuer });
-      const allowed = await connect('allowed', await mintToken());
-      expect(allowed.identity).toBeDefined();
+      const noExp = await httpCall(await mintToken(), 'register_profile', ['no exp']);
+      expect(noExp.body).toMatch(/^AUTH_REQUIRED: token must carry an expiry/);
+      expect((await connect('ws-reissued', await mintToken())).identity).toBeDefined();
+      // The platform admin's own server-minted identity is exempt and can still connect.
+      expect((await adminActor()).identity).toBeDefined();
     } finally {
       await admin.conn.reducers.removeTrustedIssuer({ issuer: 'https://idp.sentinelzero.invalid' });
       await admin.conn.reducers.removeTrustedIssuer({ issuer: localIssuer });
