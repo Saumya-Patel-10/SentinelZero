@@ -101,6 +101,9 @@ export const ALL_VIEWS = [
   'my_organizations',
   'org_member_directory',
   'my_service_principals',
+  'my_incident_timeline',
+  'my_audit_chain_heads',
+  'backend_info',
 ] as const;
 
 export const subscribeAll = (a: Actor) => subscribe(a, ALL_VIEWS.map(v => `SELECT * FROM ${v}`));
