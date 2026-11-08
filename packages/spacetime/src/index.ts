@@ -11,3 +11,4 @@ export * from './views/incidentViews';
 export * from './views/graphViews';
 export * from './views/taskViews';
 export * from './views/messageViews';
+export * from './views/systemViews';
