@@ -1,347 +1,159 @@
 # SentinelZero
 
-<div align="center">
+Independent incident-command workspace for a cyber response that cannot trust the victim's directory, mail, or internal DNS.
+
+The repository has three deployable parts. They are not one running system until you connect them.
+
+| Part | What it is today |
+|---|---|
+| `packages/spacetime` | SpacetimeDB 2.14.1 module. Private tables, OIDC issuer allowlist, role checks, incident lifecycle, data-scope ledger, messages, tasks, and a per-organization SHA-256 audit chain. |
+| `services/ai` | FastAPI service. Calls `nvidia/nemotron-3-super-120b-a12b` on `https://integrate.api.nvidia.com/v1` when a key is set. Default agent mode is four sequential specialists. Proposals stay `PENDING`. |
+| `apps/web` | React command center. Without a configured host it runs an labeled exercise on in-memory fixtures. It does not log in and it does not open a SpacetimeDB session. |
+
+Live NVIDIA inference is opt-in. A scripted provider exists for offline tests and is refused when `AI_ENVIRONMENT=production`.
+
+## Architecture
 
 ```
-  ███████╗███████╗███╗   ██╗████████╗██╗███╗   ██╗███████╗██╗     ███████╗███████╗██████╗  ██████╗ 
-  ██╔════╝██╔════╝████╗  ██║╚══██╔══╝██║████╗  ██║██╔════╝██║     ╚══███╔╝██╔════╝██╔══██╗██╔═══██╗
-  ███████╗█████╗  ██╔██╗ ██║   ██║   ██║██╔██╗ ██║█████╗  ██║       ███╔╝ █████╗  ██████╔╝██║   ██║
-  ╚════██║██╔══╝  ██║╚██╗██║   ██║   ██║██║╚██╗██║██╔══╝  ██║      ███╔╝  ██╔══╝  ██╔══██╗██║   ██║
-  ███████║███████╗██║ ╚████║   ██║   ██║██║ ╚████║███████╗███████╗███████╗███████╗██║  ██║╚██████╔╝
-  ╚══════╝╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝ ╚═════╝ 
+Browser (exercise fixtures, or a future SpacetimeDB client)
+        │  bearer token + run id
+        ▼
+FastAPI  ──verify_agent_run_access──►  SpacetimeDB (user token)
+        │
+        └── agent_claim_run / agent_get_* / agent_submit_recommendation
+            / agent_complete_run                         (service principal)
+        │
+        └── chat/completions, stream=false
+                    │
+                    ▼
+            NVIDIA integrate API
+            nvidia/nemotron-3-super-120b-a12b
 ```
 
-**When systems fail, command continues.**
+Orchestrated order is fixed: triage, impact, containment, communications, then deterministic synthesis. Synthesis is server code. It submits one `PENDING` recommendation. The model cannot approve, isolate, disable, or delete.
 
-*An independent, real-time, AI-assisted cyber incident coordination and operational continuity command center.*
+| Stage | Tools |
+|---|---|
+| Triage | `get_incident`, `get_evidence_summaries`, `query_threat_intelligence` |
+| Impact | `get_assets`, `get_dependencies` |
+| Containment | `get_open_tasks`, `propose_task` |
+| Communications | none (draft sitrep only) |
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![TypeScript 5.6](https://img.shields.io/badge/TypeScript-5.6-3178C6?logo=typescript)](https://www.typescriptlang.org/)
-[![React 18](https://img.shields.io/badge/React-18-61DAFB?logo=react)](https://react.dev/)
-[![SpacetimeDB](https://img.shields.io/badge/SpacetimeDB-2.14.1-FF4081)](https://spacetimedb.com/)
-[![NVIDIA Nemotron](https://img.shields.io/badge/NVIDIA-Nemotron--4-76B900?logo=nvidia)](https://developer.nvidia.com/topics/ai/Nemotron)
-[![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3.4-38B2AC?logo=tailwindcss)](https://tailwindcss.com/)
-[![Tests Passing](https://img.shields.io/badge/Tests-13%2F13%20Passing-emerald)](apps/web)
+`query_threat_intelligence` reads the public CISA Known Exploited Vulnerabilities JSON feed. A failed fetch returns `api_status=UNAVAILABLE` and an empty match list. It does not query MITRE ATT&CK and it does not present a local row as an authenticated lookup.
 
-</div>
+Incident text or tool output that matches a high-risk prompt-injection pattern aborts the run before a recommendation is submitted. Lower-risk patterns are labeled and treated as hostile data.
 
----
+## Security boundaries
 
-## Executive Summary
+- Human authorization is `verify_agent_run_access` on SpacetimeDB. The AI service does not grant access from unverified JWT role claims.
+- The service principal can read the claimed run and file a `PENDING` recommendation. It cannot approve.
+- Issuer and audience policy is off until a platform admin adds a trusted issuer. An open server accepts host-minted tokens. Do not expose that mode.
+- Module expiry checks bind HTTP calls. An open WebSocket is not cut when the identity-provider token expires. See `docs/SECURITY_MODEL.md`.
+- The audit chain detects tampering when the client still holds an external pin. This repository does not anchor that pin, and it does not ship a backup.
+- The web audit page is an exercise ledger. It does not verify the server chain.
+- No production deployment or corporate-network isolation drill is included. The drill steps are in `docs/SECURITY_MODEL.md` section 8.
 
-When advanced ransomware or state-sponsored intrusions strike an enterprise, attackers routinely compromise internal communication channels first: Active Directory domain controllers, Microsoft Exchange / Google Workspace mailboxes, internal DNS, and administrative endpoint management tools. Responders attempting to coordinate over compromised internal networks inadvertently leak mitigation plans to the adversary or find themselves locked out entirely.
-
-**SentinelZero** is an independently hosted, out-of-band cyber incident command and operational continuity platform. It bridges technical compromise evidence with mission-critical continuity operations—ensuring leadership, IT responders, clinicians, and coordinators maintain real-time situational awareness and command authority.
-
-It is **not** an EDR, forensic acquisition suite, or autonomous destructive remediation engine. Instead, it provides:
-1. **The Cyber-to-Human Impact Graph:** Links compromised technical assets to disrupted services and potentially affected operational units while strictly preserving forensic uncertainty.
-2. **Real-time Reactive Coordination:** Powered by private tables, authorized subscriptions, and transactional reducers in **SpacetimeDB**.
-3. **AI Copilot with Human Commander Sign-off:** Uses **NVIDIA Nemotron** to analyze evidence and propose containment workflows without allowing the model to approve its own consequential actions.
-4. **Resilient Out-of-Band Comms & Hash-Chained Audit Ledger:** Verifiable cryptographic integrity that operates completely outside the victim organization's infrastructure.
-
----
-
-## Key Pillars & Architectural Invariants
-
-### 1. Cyber-to-Human Impact Graph
-Traditional dashboards display isolated asset lists or generic alerts. SentinelZero introduces a multi-tier topological graph:
-- **Layer 0 (Cyber Assets):** Servers, databases, workstations, identity providers, and network boundaries tracked with forensic compromise and availability states (`UNKNOWN`, `SUSPECTED`, `CONFIRMED`, `RULED_OUT`).
-- **Layer 1 (Operational Services):** Core business and clinical applications (e.g., EHR Charting, Diagnostic Imaging PACS, Automated Pharmacy Dispensing).
-- **Layer 2 (Affected Human Units):** Hospital and operational departments (Emergency Dept, ICU, Surgical Teams, Pharmacy) that must activate physical downtime procedures.
-- **Uncertainty Preservation:** Data exfiltration and ransomware encryption are tracked independently. Suspected impacts remain unverified until confirmed by forensic artifacts, and personal harm is never inferred from service dependency alone.
-- **Dual 2D/3D Rendering:** An accessible, keyboard-navigable React Flow 2D graph is the canonical baseline; an optional React Three Fiber / Drei 3D interactive scene consumes the exact same normalized state with WebGL and reduced-motion guardrails.
-
-### 2. Transactional & Real-Time Operational State (SpacetimeDB)
-- **Zero Polling:** Subscriptions push real-time updates to all connected responders within sub-second latencies.
-- **Reducer Authorization:** Every mutation (`create_incident`, `transition_incident_status`, `create_task`, `approve_task`, `reject_task`, `send_message`) is validated server-side against caller identity, organization tenancy, and explicit role permissions.
-- **Private Tables by Default:** Incident data is strictly partitioned; unauthorized cross-tenant queries fail by construction.
-
-### 3. NVIDIA Nemotron AI Copilot (Human-in-the-Loop)
-- Grounded in **NIST SP 800-61 Rev.3** Computer Security Incident Handling Guide.
-- **Allowlisted Read-Only Tools:** The agent may only query incident context, asset inventories, and open tasks (`get_incident`, `get_assets`, `get_dependencies`, `propose_task`).
-- **No Self-Approval or Direct Execution:** AI recommendations are recorded strictly as `PENDING` proposals. An authenticated human Incident Commander must explicitly review and authorize proposals before tasks transition to active execution.
-- **Truthful Telemetry:** Simulations and deterministic fallbacks are clearly labeled (`EXERCISE SCENARIO`) and never deceptively presented as live model inference.
-
-### 4. Cryptographic Hash Chain Audit Ledger
-- Every state mutation appends an entry to a deterministic hash chain (`previous_hash` &rarr; `event_hash`).
-- Provides tamper-evident logging of status transitions, commander approvals, and forensic evidence uploads (SHA256 checksums and TLP tagging).
-
----
-
-## System Topology
+## Repository layout
 
 ```
-                  Authorized Responders (HTTPS / Secure WSS)
-                                     │
-           ┌─────────────────────────┴────────────────────────┐
-           ▼                                                  ▼
-┌─────────────────────────────┐                    ┌─────────────────────┐
-│      Web Command Center     │                    │  Out-of-Band Auth   │
-│   (React 18 + Vite + TS)    │                    │ (OIDC / Pre-Enrolled│
-│                             │                    │    Identities)      │
-│ ├─ KPI Overview & Lifecycle │                    └──────────┬──────────┘
-│ ├─ Tasks & Human Approvals  │                               │
-│ ├─ Cyber-to-Human Graph     │                               │
-│ │   (2D Flow / 3D R3F)      │                               │
-│ └─ Out-of-Band Comms Channel│                               │
-└──────────────┬──────────────┘                               │
-               │                                              │
-               │ WSS (Authorized Views & Subscriptions)       │ Verified Token
-               ▼                                              ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                      SpacetimeDB Module (Backend)                      │
-│                                                                        │
-│ ├─ Private Tables: Incidents, Assets, Tasks, Messages, Audit Events    │
-│ ├─ Reducers: create_incident, transition_status, approve_task, etc.    │
-│ └─ Role-Based Security: OWNER, COMMANDER, ANALYST, RESPONDER, OBSERVER │
-└──────────────────────────────────┬─────────────────────────────────────┘
-                                   ▲
-               Authorized Queries  │ (Service Principal)
-                                   │
-┌──────────────────────────────────┴─────────────────────────────────────┐
-│                      FastAPI AI Copilot Service                        │
-│                                                                        │
-│ ├─ NIST SP 800-61 Rev.3 Structured Reasoning & Tool Orchestration      │
-│ ├─ Allowlisted Read Tools (get_incident, get_assets, propose_task)     │
-│ └─ NVIDIA Nemotron-4-340B LLM Endpoint (Bounded Tokens & Latency)       │
-└────────────────────────────────────────────────────────────────────────┘
+apps/web              React command center
+packages/shared       Roles, limits, audit-chain helpers, contracts
+packages/spacetime    SpacetimeDB module, views, reducers, integration tests
+services/ai           FastAPI agent
+simulator             Synthetic hospital exercise for the AI simulator backend
+docs                  Security model, integration contract, demo notes
 ```
 
----
+## Requirements
 
-## Role-Based Access Control (RBAC) Matrix
+- Node.js 20 or newer
+- Python 3.12 (CI) or 3.11+
+- SpacetimeDB CLI 2.14.1, only if you publish the module or run its integration tests
 
-SentinelZero enforces a strict five-role security matrix on all operations:
-
-| Capability | OWNER | COMMANDER | ANALYST | RESPONDER | OBSERVER |
-|:---|:---:|:---:|:---:|:---:|:---:|
-| **Manage Organization & Memberships** | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **Declare New Incident** | ✅ | ✅ | ✅ | ❌ | ❌ |
-| **Approve Consequential Tasks** | ✅ | ✅ | ❌ | ❌ | ❌ |
-| **Transition Incident Status (Lifecycle)** | ✅ | ✅ | ✅ | ❌ | ❌ |
-| **Reopen Closed Incident (with Justification)** | ✅ | ✅ | ❌ | ❌ | ❌ |
-| **Update Asset Forensic Status** | ✅ | ✅ | ✅ | ✅ | ❌ |
-| **Execute & Advance Assigned Tasks** | ✅ | ✅ | ✅ | ✅ | ❌ |
-| **Broadcast Out-of-Band Messages** | ✅ | ✅ | ✅ | ✅ | ❌ |
-| **Read Authorized Incident Summaries** | ✅ | ✅ | ✅ | ✅ | ✅ |
-
-*Note: `OBSERVER` accounts are cryptographically restricted to read-only views.*
-
----
-
-## Incident Lifecycle State Machine
-
-SentinelZero enforces explicit allowed transitions in compliance with standard incident response guidelines:
-
-```
-  [REPORTED] ───────────────► [TRIAGING] ───────────────► [INVESTIGATING]
-       │                           │                              │
-       │ (False alarm)             │ (Ruled out)                  │
-       ▼                           ▼                              ▼
-    [CLOSED] ◄───────────────── [CLOSED] ◄──────────────────── [CLOSED]
-       │
-       │ (Commander-only Reopen + Justification)
-       └───────────────────────────► [TRIAGING]
-                                        ▲
-  [INVESTIGATING] ──────────► [CONTAINING] ─────────────► [CONTAINED]
-                                    ▲                          │
-                                    │ (Lateral spread)         ▼
-                                    └──────────────────── [RECOVERING]
-                                                               │
-                                                               ▼
-                                                          [RESOLVED]
-                                                               │
-                                                               ▼
-                                                           [CLOSED]
-```
-
----
-
-## Repository Structure
-
-```text
-sentinelzero/
-├── ARCHITECTURE.md                 # Master system architecture specification
-├── architecture.json               # Machine-readable architecture schema
-├── README.md                       # Master project overview & documentation
-├── package.json                    # Root workspace manifest
-├── pnpm-workspace.yaml             # Workspace package orchestration
-│
-├── apps/
-│   └── web/                        # React 18 / Vite / TypeScript Command Center
-│       ├── index.html              # HTML shell with accessibility metadata
-│       ├── package.json            # Web application dependencies & scripts
-│       ├── vite.config.ts          # Vite build config with manual chunking
-│       ├── vitest.config.ts        # Vitest configuration for unit & component tests
-│       ├── tailwind.config.js      # Dark command center design tokens
-│       └── src/
-│           ├── app/                # Application shell, router, providers & error boundary
-│           ├── components/
-│           │   ├── ai/             # Nemotron AI copilot run modal & proposal cards
-│           │   ├── communications/ # Out-of-band real-time incident chat
-│           │   ├── dashboard/      # KPI overview metrics & sitrep cards
-│           │   ├── graph/          # 2D React Flow graph, custom nodes, inspector drawer
-│           │   ├── incidents/      # Incident declaration modal & lifecycle progress bar
-│           │   ├── layout/         # TopBar, Sidebar, and Disconnected status banner
-│           │   ├── tasks/          # Kanban task board, human approvals & creation modal
-│           │   ├── three/          # Optional 3D scene (React Three Fiber + Drei)
-│           │   └── ui/             # Reusable UI primitives (Badges, Buttons, Modals)
-│           ├── fixtures/           # Typed synthetic exercise fixtures (Hope Valley Hospital)
-│           ├── hooks/              # Custom hooks (useAuth, useIncidents, useTasks, useConnection)
-│           ├── pages/              # Routed pages (CommandCenter, Graph, Tasks, Comms, Admin)
-│           ├── services/           # SpacetimeDB client, AI client, and graph transforms
-│           ├── stores/             # Zustand state stores (uiStore, graphStore)
-│           └── tests/              # Vitest test suites (13 unit/lifecycle/component tests)
-│
-├── packages/
-│   ├── shared/                     # Shared TypeScript schemas, enums, limits & graph contracts
-│   └── spacetime/                  # SpacetimeDB backend module (reducers, private views, bindings)
-│
-├── services/
-│   └── ai/                         # Python FastAPI agent orchestration with NVIDIA Nemotron
-│       ├── app/                    # Routes, tools, guardrails, and redaction logic
-│       └── tests/                  # Pytest test suite for AI tools and validation
-│
-└── simulator/                      # Synthetic hospital ransomware seed & scenario replay
-```
-
----
-
-## Quickstart Guide
-
-### Prerequisites
-- **Node.js:** v18.0.0 or higher (v20+ recommended)
-- **Package Manager:** `pnpm` (v9+) or `npm`
-- **Python:** 3.11+ (for AI service)
-- **SpacetimeDB CLI:** exactly 2.14.1 (matches the pinned `spacetimedb` npm package and the committed bindings)
-
----
-
-### 1. Web Command Center (Frontend)
-
-To run the accessible command center interface:
+## Run the exercise console
 
 ```powershell
-# Navigate to web application
 cd apps/web
-
-# Install dependencies
 pnpm install
-
-# Run the test suite (13 passing unit and component tests)
 pnpm test
-
-# Run production build and verify bundle code splitting
-pnpm run build
-
-# Start local development server
-pnpm run dev
+pnpm dev
 ```
 
-Open **`http://localhost:5173`** in your browser.
+Open `http://localhost:5173`.
 
-#### Highlights in the Web UI:
-- **Interactive Role Switcher:** Toggle between `COMMANDER`, `ANALYST`, `RESPONDER`, and `OBSERVER` in the top bar to verify real-time authorization checks.
-- **Cyber-to-Human Impact Graph:** Switch between **2D FLOW** (React Flow) and **3D SCENE** (Three.js / React Three Fiber) seamlessly.
-- **Human Commander Approvals:** Tasks requiring authorization appear with highlighted callouts; only Commander accounts can approve them.
-- **NVIDIA Nemotron Copilot:** Click **"AI Incident Copilot"** to simulate or execute structured Nemotron reasoning and allowlisted tool invocations.
-- **Connection Outage Simulation:** Click the green **"CONNECTED"** status pill in the top bar to simulate an operational network disconnect and test local UI resilience.
+The top bar role control changes the local user. The status pill reads `EXERCISE REPLAY`. Analysis without an authenticated AI session is labeled `SIMULATED` and `EXERCISE SCENARIO`. The disconnect control is a UI state. Writes stay in the browser.
 
----
-
-### 2. SpacetimeDB Backend Module
-
-To compile and publish the SpacetimeDB transactional module:
-
-Integration contract (connection, auth, views, reducers, AI flow): [`docs/INTEGRATION_CONTRACT.md`](docs/INTEGRATION_CONTRACT.md). Security guarantees and limits: [`docs/SECURITY_MODEL.md`](docs/SECURITY_MODEL.md).
-
-```powershell
-# From the repo root. Requires the SpacetimeDB 2.14.1 CLI.
-$env:SPACETIME_CLI = "<path to spacetimedb-cli 2.14.1>"   # or have `spacetime` on PATH
-npm run setup                 # npm ci for packages/shared and packages/spacetime
-npm run typecheck
-npm run test:unit             # no server needed
-
-# Integration tests and the demo need a local server (ES256 dev keys, never committed):
-& $env:SPACETIME_CLI start --listen-addr 127.0.0.1:3000 --in-memory --jwt-pub-key-path <dir>\id_ecdsa.pub --jwt-priv-key-path <dir>\id_ecdsa
-npm run test:integration      # publishes a throwaway database per run
-npm run build; npm run seed:demo   # EXERCISE org + one account per role; tokens go to packages/spacetime/.demo/ (git-ignored)
-```
-
----
-
-### 3. FastAPI AI Service (NVIDIA Nemotron)
-
-To launch the AI orchestration service:
+## Run the AI service
 
 ```powershell
 cd services/ai
-
-# Create and activate virtual environment
 python -m venv .venv
-# Windows:
 .venv\Scripts\activate
-# Linux/macOS:
-# source .venv/bin/activate
-
-# Install dependencies
-pip install -e .
-
-# Configure environment variables (create .env from example)
-# NVIDIA_API_KEY=your_key_here
-
-# Run pytest test suite
-pytest
-
-# Launch FastAPI server
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+pip install -e ".[dev]"
+pytest -q
+python -m simulator verify
 ```
 
----
+From the repository root, `python -m simulator verify` checks the synthetic scenario file.
 
-## Verification & Testing Overview
+Offline tests use `AI_PROVIDER_MODE=scripted`. To call NVIDIA:
 
-The project maintains comprehensive test coverage across all layers:
+```powershell
+$env:NVIDIA_API_KEY = "<key>"
+$env:AI_PROVIDER_MODE = "live"
+$env:AI_LIVE_TESTS = "1"
+pytest -m live -q
+```
 
-| Layer | Test Runner | Scope | Status |
-|:---|:---:|:---|:---:|
-| **Frontend UI & Components** | Vitest (`apps/web`) | Component rendering, badge text labeling, connection banner | ✅ Passed (5/5) |
-| **Frontend Lifecycle & State** | Vitest (`apps/web`) | Sequential transitions, disallowed transitions, commander reopen | ✅ Passed (3/3) |
-| **Frontend Role Authorization** | Vitest (`apps/web`) | Commander approvals, observer mutation blocks | ✅ Passed (2/2) |
-| **Graph Transformation** | Vitest (`apps/web`) | Uncertainty preservation, layer assignments, no invented edges | ✅ Passed (3/3) |
-| **Shared Contracts** | Vitest (`packages/shared`) | Frozen schema validation, enum parsing, graph building | ✅ Passed |
-| **SpacetimeDB Reducers** | Vitest (`packages/spacetime`)| Idempotency, tenancy isolation, permission checks | ✅ Passed |
-| **AI Tool Guardrails** | Pytest (`services/ai`) | Allowlist enforcement, structured output schema, redaction | ✅ Passed |
+The live test is skipped unless both the key and `AI_LIVE_TESTS=1` are set. Copy `services/ai/.env.example` before a manual run. `AI_BACKEND_MODE` is `spacetimedb` or `simulator`. `memory` is not a valid mode.
 
----
+Production startup refuses a scripted provider, a simulator backend, a missing service token, and wildcard CORS.
 
-## Fictional Demonstration Scenario: Hope Valley Community Hospital
+## Run the SpacetimeDB module
 
-SentinelZero includes pre-configured synthetic exercise fixtures representing a ransomware crisis at **Hope Valley Community Hospital (HVCH)**:
-- **12 Cyber Assets:** Primary EHR database, web portals, PACS radiology storage, Active Directory domain controllers, firewalls, and pharmacy dispensing hubs.
-- **3 Disrupted Operational Services:** Emergency clinical charting (Outage), diagnostic radiology image retrieval (Outage), automated medication dispensing (Degraded).
-- **4 Impacted Human Teams:** Emergency Dept, ICU Nursing, Trauma Surgery, and Floor Nurses operating under physical paper downtime procedures.
-- **Forensic Evidence:** TLP-Amber LockBit 3.0 ransom note and TLP-Red egress PCAP capture.
-- **Exfiltration Uncertainty:** Data scopes reflect 142,000 PHI records encrypted on the primary EHR database with exfiltration marked **`UNKNOWN`** (preserving truthfulness without premature breach declarations).
+Integration contract: `docs/INTEGRATION_CONTRACT.md`. Security model: `docs/SECURITY_MODEL.md`.
 
----
+```powershell
+npm run setup
+npm run typecheck
+npm run test:unit
+```
 
-## Security & Responsible Disclosure
+Integration tests publish a throwaway database and need a local SpacetimeDB 2.14.1 server. They are not part of GitHub Actions today.
 
-SentinelZero is engineered to maintain operational resilience under adverse cyber conditions. Key security commitments:
-- **Zero Client-Side Secrets:** Private keys, service tokens, and provider credentials (`NVIDIA_API_KEY`) are strictly retained on the backend and never exposed in browser bundles.
-- **Independent Identity:** SentinelZero uses pre-enrolled out-of-band identities rather than relying on the victim organization's compromised Active Directory or corporate single-sign-on.
-- **No Autonomous Destructive Actions:** The AI copilot cannot disable accounts, isolate endpoints, delete evidence, or approve its own proposals.
-- **Honest Telemetry:** Synthetic exercise runs are explicitly labeled (`EXERCISE SCENARIO`), and hash chaining is presented honestly as cryptographic chaining rather than an immutable public blockchain.
+```powershell
+npm run test:integration
+```
 
-For security reports or inquiries, please review our [SECURITY.md](SECURITY.md) guidelines.
+## Continuous integration
 
----
+`.github/workflows/ci.yml` on pull request runs Spacetime unit tests, the Python suite except live tests, the web Vitest suite, and `python -m simulator verify`.
 
-<div align="center">
+The NVIDIA job runs only on a manual `workflow_dispatch`, and only if the `NVIDIA_API_KEY` secret is present. A green pull-request check is not evidence of a live model call.
 
-**SentinelZero** — *When systems fail, command continues.*
+## Configuration
 
-Designed for emergency cyber response, operational continuity, and evidence-grounded incident command.
+| Variable | Used by | Purpose |
+|---|---|---|
+| `NVIDIA_API_KEY` or `AI_NVIDIA_API_KEY` | AI service | Bearer token for the NVIDIA integrate API |
+| `AI_NVIDIA_MODEL` | AI service | Default `nvidia/nemotron-3-super-120b-a12b` |
+| `AI_PROVIDER_MODE` | AI service | `live` or `scripted` |
+| `AI_AGENT_MODE` | AI service | `orchestrated` (default) or `single` |
+| `AI_BACKEND_MODE` | AI service | `spacetimedb` or `simulator` |
+| `AI_BACKEND_SERVICE_TOKEN` | AI service | Service principal for agent reducers |
+| `VITE_AI_SERVICE_URL` | Web | Optional. Unused until an auth provider is installed in the client |
 
-</div>
+`apps/web` does not read `VITE_STDB_URI` or `VITE_OIDC_ISSUER` yet.
+
+## Known limits
+
+- The command center a judge clicks is the exercise UI. Server authorization is in the module, not in that browser session.
+- Agent run state in FastAPI is in memory and ends when the process exits. The sitrep is included in the `agent_complete_run` summary so SpacetimeDB keeps a copy of the text.
+- One recommendation is submitted per run. The commander approves it in SpacetimeDB, not in the AI service. `POST /v1/recommendations/{id}/submit` returns 404.
+- `GET /v1/agent-runs/{id}` is the status route the browser polls.
+- Evidence rows store a caller-supplied SHA-256. The module does not store file bytes and cannot prove the digest.
+- There is no backup, restore path, or external audit anchor in this repository.
+
+## License
+
+MIT. See `LICENSE.txt`.
