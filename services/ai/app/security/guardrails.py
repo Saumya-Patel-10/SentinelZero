@@ -113,6 +113,7 @@ ALLOWED_TOOL_NAMES: frozenset[str] = frozenset(
         "get_open_tasks",
         "get_evidence_summaries",
         "propose_task",
+        "query_threat_intelligence",
     }
 )
 
