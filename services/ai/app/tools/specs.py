@@ -26,6 +26,25 @@ _NO_ARGS: dict[str, Any] = {
     "additionalProperties": False,
 }
 
+_QUERY_THREAT_INTEL: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "query": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 100,
+            "description": "Threat group name, malware strain, or CVE identifier (e.g. LockBit 3.0, CVE-2024-1709, Kerberoasting)",
+        },
+        "ioc_type": {
+            "type": "string",
+            "enum": ["MALWARE_FAMILY", "CVE_VULNERABILITY", "ATTACK_TECHNIQUE", "GENERAL"],
+            "description": "Category of threat intelligence to retrieve from external CISA KEV and MITRE ATT&CK repositories",
+        },
+    },
+    "required": ["query"],
+    "additionalProperties": False,
+}
+
 _PROPOSE_TASK: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -102,6 +121,15 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         ),
         parameters=_PROPOSE_TASK,
         write_like=True,
+    ),
+    "query_threat_intelligence": ToolSpec(
+        name="query_threat_intelligence",
+        description=(
+            "Intelligently query external Cybersecurity & Infrastructure Security Agency (CISA) "
+            "Known Exploited Vulnerabilities (KEV) catalog and MITRE ATT&CK framework for known ransomware "
+            "TTPs, exploit mechanics, and NIST-recommended containment playbooks."
+        ),
+        parameters=_QUERY_THREAT_INTEL,
     ),
 }
 
