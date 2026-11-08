@@ -11,6 +11,14 @@ The code is the source of truth. If this document disagrees with the code, the c
 
 ## 0. Changelog
 
+**1.1.0 backend hardening** (no change to reducer signatures, views or row types; the version string stays `1.1.0`; existing databases upgrade in place, verified by `scripts/migration-check.mjs` from the previous 1.1.0 bundle)
+
+- **Closed incidents are now fully read-only, as section 2.2 already stated.** These calls used to succeed on a CLOSED incident and now fail with `INVALID_TRANSITION`: `assign_task`, `update_task_status`, `approve_task`, `reject_task`, `send_message`, `request_agent_run`, `reject_recommendation`, `assign_incident_commander`, `agent_claim_run` and `agent_submit_recommendation`. Still allowed: the COMMANDER reopen transition, `cancel_agent_run` and `agent_complete_run`.
+- **New per-identity rate limits** (`RATE_LIMITS` in `packages/shared/src/limits.ts`, error `RATE_LIMITED`): `create_incident` 30 per 60 s; every other incident-scoped human write 120 per 60 s (shared bucket `incident_write`); service-principal `agent_get_*` tool calls 120 per 60 s (`agent_tool_call`). Only successful calls consume budget.
+- **Fixed: concurrent writes could fail with an untyped "The instance encountered a fatal error."** Two transactions with the same host timestamp generated the same row ID. IDs are now unique by construction (new private table `id_sequence`; see `docs/data-model.md`).
+- `register_service_principal` now also rejects an identity whose human membership belongs to a currently disabled user.
+- `revoke_member` no longer counts disabled OWNERs when protecting the last OWNER.
+
 **1.1.0** (additive; existing 1.0 databases upgrade in place, verified by `scripts/migration-check.mjs`)
 
 - **New views:**
@@ -116,7 +124,8 @@ General rules:
 - **`idempotencyKey`, `clientKey` and `clientMessageId`** are 8-128 characters matching `[A-Za-z0-9._:-]`. Repeating a call with the same key is a no-op that returns success.
 - **Text fields** reject control characters, bidi overrides and blank-only values. HTML is stored verbatim, so escape it when rendering.
 - **Optional strings.** Pass `''` for "not provided" (for example `evidenceId` and `reason`) unless the reducer requires the value. Pass `undefined` for an optional `Identity`, `Timestamp` or `u64`.
-- **Closed incidents.** Writes to child records of a CLOSED incident fail with `INVALID_TRANSITION`.
+- **Closed incidents.** Writes to a CLOSED incident or its child records fail with `INVALID_TRANSITION`. The exceptions are the COMMANDER reopen transition, `cancel_agent_run` and `agent_complete_run`.
+- **Rate limits** are per identity and fixed-window: `send_message` 30/60 s, `request_agent_run` 5/60 s, `create_incident` 30/60 s, and 120/60 s shared by every other incident-scoped write in the tables below. Exceeding one fails with `RATE_LIMITED`; back off and retry.
 - **Enum values** come from `packages/shared/src/enums.ts`. Never redefine the literals.
 
 **Platform and organization**
@@ -355,7 +364,7 @@ Every call is `POST {STDB_URI}/v1/database/{DB}/call/{name}` with the headers `A
 |---|---|---|---|---|
 | 1 | `verify_agent_run_access` (procedure) | **the user's** token, forwarded and never logged | `[runId]` | 200 `[authorized, isRequester, role, runId, incidentId, organizationId, status]`. When not authorized, `authorized=false` and the other fields are blank |
 | 2 | `agent_claim_run` (reducer) | service | `[runId, modelIdentifier, inferenceMode]` | 200. The run becomes RUNNING with a 15-minute lease. `inferenceMode` is `LIVE`, `SIMULATED` or `FIXTURE` |
-| 3 | `agent_get_incident`, `agent_get_assets`, `agent_get_dependencies`, `agent_get_open_tasks`, `agent_get_evidence_summaries` (procedures) | service | `[runId]` | 200 `[0, value]`, or `[1, "CODE: detail"]` on denial. Value shapes are in `AGENT_PROCEDURE_FIELDS` |
+| 3 | `agent_get_incident`, `agent_get_assets`, `agent_get_dependencies`, `agent_get_open_tasks`, `agent_get_evidence_summaries` (procedures) | service | `[runId]` | 200 `[0, value]`, or `[1, "CODE: detail"]` on denial. Value shapes are in `AGENT_PROCEDURE_FIELDS`. At most 120 tool calls per 60 s per service principal (`[1, "RATE_LIMITED: …"]`) |
 | 4 | `agent_submit_recommendation` (reducer) | service | `[runId, clientKey, title, description, priority (P1..P4), rationale, evidenceIds[], uncertainties[]]` | 200. Creates a **PENDING** recommendation, deduplicated by `clientKey`, at most 10 per run. `evidenceIds` must belong to the run's incident |
 | 5 | `agent_complete_run` (reducer) | service | `[runId, 'COMPLETED'\|'FAILED', errorCategory, summary]` | 200. COMPLETED requires `errorCategory = 'NONE'` |
 
@@ -414,10 +423,13 @@ $env:SPACETIME_CLI = "$env:LOCALAPPDATA\SpacetimeDB-2.14.1\spacetimedb-cli.exe"
 & $env:SPACETIME_CLI start --listen-addr 127.0.0.1:3000 --in-memory `
     --jwt-pub-key-path <dir>\id_ecdsa.pub --jwt-priv-key-path <dir>\id_ecdsa   # ES256 dev keys, never committed
 npm run build                       # builds packages/spacetime/dist/bundle.js
-npm run seed:demo                   # publishes to SZ_DB (default sentinelzero) and seeds the demo
+npm run seed:demo                   # builds, publishes to SZ_DB (default sentinelzero) and seeds the demo
+npm run migration-check             # builds, then checks an in-place upgrade on a throwaway database
 ```
 
-`seed:demo` runs `packages/spacetime/scripts/seed-demo.mjs --publish`. It creates:
+Both scripts read `SZ_STDB_URI` (default `http://127.0.0.1:3000`). `migration-check` upgrades from `$env:SZ_MIGRATION_BASE_BUNDLE` (a `bundle.js` built from the previous release) when it is set, and otherwise republishes the current bundle over itself.
+
+`seed:demo` builds and then runs `packages/spacetime/scripts/seed-demo.mjs --publish`. It creates:
 
 - one organization named `EXERCISE Regional Hospital <date>` with `dataClass = EXERCISE`;
 - one account per role (OWNER, COMMANDER, ANALYST, RESPONDER, OBSERVER), each with a registered profile;
