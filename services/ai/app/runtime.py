@@ -192,9 +192,10 @@ class AppRuntime:
     # ------------------------------------------------------------------
 
     def analysis_accepted(self, record: RunRecord) -> AnalysisAccepted:
+        # Claim already moved the backend run to RUNNING before this response.
         return AnalysisAccepted(
             run_id=record.run_id,
-            status=record.status,
+            status="RUNNING",
             inference_mode=record.inference_mode,
             model_identifier=record.model_identifier,
         )
