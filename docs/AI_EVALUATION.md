@@ -2,8 +2,11 @@
 
 Status date: **2026-11-07**. Branch: `agent/03-nemotron-real-backend`.
 
-This document records how Nemotron agent quality is measured, what results are
-real versus simulated, and what remains blocked.
+This document records how Nemotron agent quality is measured. The orchestrated
+scripted path is what `services/ai/tests/test_workflow.py` asserts. Live NVIDIA
+inference is opt-in (`pytest -m live`) and is not evidence unless that job was
+run with a key. The public CISA KEV tool is a real HTTP read with an honest
+`UNAVAILABLE` result; it is not an authenticated MITRE lookup.
 
 ---
 
