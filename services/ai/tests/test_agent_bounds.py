@@ -19,13 +19,35 @@ async def test_step_limit_stops_run(app_factory, client_factory, stdb):
     run_id = "run_step_limit_001"
     stdb.set_run(run_id, status="REQUESTED")
 
-    # FakeNemotron that always requests tools (never produces final JSON), so
-    # the agent hits the step limit.
-    from conftest import FakeNemotron
+    from app.llm.types import AssistantTurn, ToolCallRequest
 
-    provider = FakeNemotron([FakeNemotron.tool_turn([("c1", "get_incident", "{}")])] * 3)
+    class AlwaysToolProvider:
+        descriptor = type(
+            "D",
+            (),
+            {
+                "mode": "scripted",
+                "endpoint_class": "SIMULATED_SCRIPTED",
+                "model_identifier": "step-limit-model",
+                "inference_label": "SIMULATED_MODEL_OUTPUT",
+                "configured": True,
+            },
+        )()
 
+        async def complete(self, **kwargs):
+            del kwargs
+            return AssistantTurn(
+                content=None,
+                tool_calls=[ToolCallRequest(id="c1", name="get_incident", arguments_json="{}")],
+                finish_reason="tool_calls",
+            )
+
+        async def aclose(self):
+            return None
+
+    provider = AlwaysToolProvider()
     app.state.provider = provider
+    app.state.runtime.provider = provider
     accepted = await client.post(
         ANALYZE,
         json={"incident_id": INCIDENT, "run_id": run_id, "analysis_type": "intake"},
@@ -72,6 +94,7 @@ async def test_missing_tool_round_trip_fails_run(app_factory, client_factory, st
     stdb.set_run(run_id, status="REQUESTED")
 
     app.state.provider = NoToolProvider()
+    app.state.runtime.provider = NoToolProvider()
     accepted = await client.post(
         ANALYZE,
         json={"incident_id": INCIDENT, "run_id": run_id, "analysis_type": "intake"},
