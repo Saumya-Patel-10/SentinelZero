@@ -106,10 +106,10 @@ export const Sidebar: React.FC = () => {
       <div className="p-4 m-3 rounded-lg bg-sz-bg-surface border border-sz-bg-border text-xs text-slate-400 space-y-2">
         <div className="flex items-center gap-2 text-cyan-400 font-mono font-semibold">
           <Activity className="w-4 h-4" />
-          <span>INDEPENDENT COLD HOST</span>
+          <span>EXERCISE CONSOLE</span>
         </div>
         <p className="text-[11px] leading-relaxed text-slate-400">
-          Operates outside compromised target directory, email, and internal DNS.
+          This browser session uses local fixtures until a SpacetimeDB host and dedicated identity provider are connected.
         </p>
       </div>
     </aside>
