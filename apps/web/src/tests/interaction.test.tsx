@@ -6,6 +6,7 @@ import { spacetimeClient } from '../services/spacetimeClient';
 import { MOCK_USERS } from '../fixtures/mockData';
 import { useUIStore } from '../stores/uiStore';
 import { useGraphStore } from '../stores/graphStore';
+import { aiClient } from '../services/aiClient';
 
 describe('End-to-End User Interaction Workflows', () => {
   beforeEach(() => {
@@ -62,7 +63,7 @@ describe('End-to-End User Interaction Workflows', () => {
       useUIStore.getState().setCurrentView('IMPACT_GRAPH');
     });
 
-    expect(screen.getByText('2D FLOW')).toBeInTheDocument();
+    expect(await screen.findByText('2D FLOW', undefined, { timeout: 5000 })).toBeInTheDocument();
     expect(screen.getByText('3D SCENE')).toBeInTheDocument();
 
     // Type search filter
@@ -101,23 +102,25 @@ describe('End-to-End User Interaction Workflows', () => {
 
     // Verify modal is open and has run controls
     expect(screen.getByText('NVIDIA Nemotron Incident Copilot')).toBeInTheDocument();
-    expect(screen.getByText('Analysis Scope')).toBeInTheDocument();
+    expect(screen.getByTestId('ai-run-panel')).toBeInTheDocument();
+    expect(screen.getByLabelText('Analysis Type')).toBeInTheDocument();
 
-    // Trigger analysis run
+    // No AI session is configured in this test, so the run is a labeled exercise scenario.
+    aiClient.configure({ exerciseStepMs: 1 });
     const runButton = screen.getByRole('button', { name: /Execute Nemotron Run/i });
     await act(async () => {
       fireEvent.click(runButton);
     });
 
-    // Verify tool calls sequence and proposals render after async resolution
-    await waitFor(
-      () => {
-        expect(screen.getByText(/ALLOWLISTED READ-ONLY TOOL SEQUENCE/i)).toBeInTheDocument();
-      },
-      { timeout: 2500 }
-    );
+    await waitFor(() => {
+      expect(screen.getByTestId('ai-subagent-communications')).toHaveAttribute('data-status', 'COMPLETED');
+    });
 
-    expect(screen.getByText(/Proposed Mitigations/i)).toBeInTheDocument();
+    expect(screen.getByText(/ALLOWLISTED READ-ONLY TOOL SEQUENCE/i)).toBeInTheDocument();
+    expect(screen.getByTestId('ai-inference-mode')).toHaveAttribute('data-mode', 'SIMULATED');
+    expect(screen.getByTestId('ai-exercise-notice')).toHaveTextContent('EXERCISE SCENARIO');
+    expect(screen.getByText('Requires Incident Commander approval')).toBeInTheDocument();
+    aiClient.reset();
 
     // Close modal via Close button
     const closeButtons = screen.getAllByRole('button', { name: /Close modal/i });
@@ -136,7 +139,7 @@ describe('End-to-End User Interaction Workflows', () => {
       useUIStore.getState().setCurrentView('COMMUNICATIONS');
     });
 
-    expect(screen.getByText('Out-of-Band Incident Comms Channel')).toBeInTheDocument();
+    expect(await screen.findByText('Out-of-Band Incident Comms Channel', undefined, { timeout: 5000 })).toBeInTheDocument();
     expect(screen.getByText(/SECURE ISOLATED TLS/i)).toBeInTheDocument();
 
     // Type and send a message
