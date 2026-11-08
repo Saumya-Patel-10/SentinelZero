@@ -2,6 +2,10 @@
 
 Secrets are held in ``SecretStr`` and are never serialized into responses, logs,
 or run records. The health endpoint exposes booleans only.
+
+Backend integration is the SpacetimeDB HTTP API (docs/INTEGRATION_CONTRACT.md
+section 5.3): ``POST {STDB_URI}/v1/database/{DB}/call/{name}``.  The legacy
+``/internal/v1/`` MOCK-1 routes do not exist and have been removed.
 """
 
 from __future__ import annotations
@@ -17,7 +21,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["development", "test", "production"]
 ProviderMode = Literal["live", "scripted"]
-BackendMode = Literal["memory", "http"]
+BackendMode = Literal["spacetimedb", "simulator"]
+AgentMode = Literal["orchestrated", "single"]
+InferenceMode = Literal["LIVE", "SIMULATED", "FIXTURE"]
 
 
 class Settings(BaseSettings):
@@ -29,13 +35,17 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
+    # --- runtime -----------------------------------------------------------
     environment: Environment = "development"
     service_version: str = "0.1.0"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     enable_docs: bool = True
-    demo_mode: bool = False
 
-    # --- caller authentication -------------------------------------------
+    # --- caller authentication --------------------------------------------
+    # The service no longer authorizes from JWT org_id/roles claims.  It forwards
+    # the caller's bearer token to SpacetimeDB's verify_agent_run_access procedure,
+    # which checks active membership and role server-side.  JWT material is kept
+    # only for backward-compatible local token minting in tests/demos.
     jwt_secret: SecretStr | None = Field(
         default=None,
         validation_alias=AliasChoices("AI_JWT_SECRET", "JWT_SECRET"),
@@ -48,7 +58,6 @@ class Settings(BaseSettings):
     jwt_issuer: str = "sentinelzero-auth"
     jwt_audience: str = "sentinelzero-ai"
     jwt_leeway_seconds: int = 30
-    allowed_roles: tuple[str, ...] = ("OWNER", "COMMANDER", "ANALYST", "RESPONDER", "OBSERVER")
 
     # --- NVIDIA Nemotron ---------------------------------------------------
     nvidia_api_key: SecretStr | None = Field(
@@ -70,26 +79,40 @@ class Settings(BaseSettings):
     nvidia_temperature: float = 0.1
     nvidia_top_p: float = 0.9
     nvidia_seed: int | None = None
-    # Some Nemotron reasoning variants need chat_template_kwargs for tool parsing.
-    # See docs/deployment.md "Model capability verification".
     nvidia_enable_thinking: bool = False
     nvidia_force_nonempty_content: bool = False
     provider_mode: ProviderMode = "live"
     require_tool_round_trip: bool = True
+    # orchestrated: specialist sub-agents (triage, impact, containment,
+    # communications) + synthesis.  single: the original one-loop agent.
+    agent_mode: AgentMode = "orchestrated"
 
-    # --- incident backend (Agent 1 contract; MOCK until published) --------
-    backend_mode: BackendMode = "memory"
-    backend_base_url: str = "http://127.0.0.1:3000"
+    # --- incident backend (SpacetimeDB HTTP API) --------------------------
+    # spacetimedb: the real backend.  simulator: local EXERCISE state file,
+    # refused in production.
+    backend_mode: BackendMode = "spacetimedb"
+    simulator_state_path: str | None = None
+    # AI_BACKEND_BASE_URL is the SpacetimeDB host (e.g. http://127.0.0.1:3000).
+    # AI_STDB_DB_NAME is the database name (e.g. sentinelzero).
+    backend_base_url: str = Field(
+        default="http://127.0.0.1:3000",
+        validation_alias=AliasChoices("AI_BACKEND_BASE_URL", "STDB_URI"),
+    )
+    stdb_db_name: str = "sentinelzero"
+    # Service-principal token from POST /v1/identity, registered by an OWNER
+    # with register_service_principal.  Server-side only; never committed.
+    # Env var: AI_BACKEND_SERVICE_TOKEN (AI_ prefix is added automatically).
     backend_service_token: SecretStr | None = None
     backend_timeout_seconds: float = 10.0
-    simulator_state_path: str = "../../simulator/.state/state.json"
 
     # --- bounds ------------------------------------------------------------
-    max_steps: int = Field(default=6, ge=1, le=8)
-    max_tool_calls: int = Field(default=10, ge=1, le=16)
+    # Run-wide budgets.  In orchestrated mode they are shared by ALL sub-agents
+    # and the synthesis step combined, never granted per sub-agent.
+    max_steps: int = Field(default=12, ge=1, le=24)
+    max_tool_calls: int = Field(default=16, ge=1, le=32)
     max_tool_result_chars: int = Field(default=20_000, ge=1_000, le=100_000)
-    max_context_chars: int = Field(default=32_000, ge=4_000, le=200_000)
-    run_deadline_seconds: float = Field(default=90.0, ge=5.0, le=300.0)
+    max_context_chars: int = Field(default=96_000, ge=4_000, le=400_000)
+    run_deadline_seconds: float = Field(default=240.0, ge=5.0, le=600.0)
     max_body_bytes: int = Field(default=16_384, ge=1_024, le=1_048_576)
     max_concurrent_runs_per_user: int = Field(default=2, ge=1, le=10)
     rate_limit_per_minute: int = Field(default=6, ge=1, le=120)
@@ -104,34 +127,34 @@ class Settings(BaseSettings):
     def _validate(self) -> "Settings":
         if self.jwt_algorithm == "RS256" and not self.jwt_public_key:
             raise ValueError("AI_JWT_PUBLIC_KEY is required when AI_JWT_ALGORITHM=RS256")
-        if self.jwt_algorithm == "HS256" and self.jwt_secret is None:
-            # Startup is allowed so /health can report degraded; endpoints fail closed.
-            pass
         if self.environment == "production":
             if self.provider_mode == "scripted":
                 raise ValueError("AI_PROVIDER_MODE=scripted is forbidden in production")
-            if self.jwt_secret is None and self.jwt_public_key is None:
-                raise ValueError("JWT verification is not configured")
-            if self.backend_mode == "http" and self.backend_service_token is None:
-                raise ValueError("AI_BACKEND_SERVICE_TOKEN is required for HTTP backend mode")
+            if self.backend_mode != "spacetimedb":
+                raise ValueError("AI_BACKEND_MODE=simulator is forbidden in production")
+            if not self.backend_service_token:
+                raise ValueError("AI_BACKEND_SERVICE_TOKEN is required for SpacetimeDB backend")
             if "*" in self.cors_origins:
                 raise ValueError("Wildcard CORS is forbidden in production")
+        if not self.backend_base_url.startswith(("http://", "https://")):
+            raise ValueError("AI_BACKEND_BASE_URL must be an HTTP(S) URL")
         if not self.nvidia_base_url.startswith(("http://", "https://")):
             raise ValueError("AI_NVIDIA_BASE_URL must be an HTTP(S) URL")
         if self.nvidia_base_url.rstrip("/").endswith("/chat/completions"):
-            # Accept either base URL style but normalize in the client.
             self.nvidia_base_url = self.nvidia_base_url.rsplit("/chat/completions", 1)[0]
         return self
 
     # --- derived, non-secret descriptors ----------------------------------
     @property
     def auth_configured(self) -> bool:
-        if self.jwt_algorithm == "RS256":
-            return self.jwt_public_key is not None
-        return self.jwt_secret is not None
+        """Backend authorization is always via SpacetimeDB verify_agent_run_access."""
+        return True
 
     @property
     def provider_configured(self) -> bool:
+        """Scripted mode is always configured; live mode needs a key."""
+        if self.provider_mode == "scripted":
+            return True
         return self.nvidia_api_key is not None and bool(self.nvidia_model)
 
     @property
@@ -140,34 +163,44 @@ class Settings(BaseSettings):
         if self.provider_mode == "scripted":
             return "SIMULATED_SCRIPTED"
         host = (urlparse(self.nvidia_base_url).hostname or "").lower()
-        if host == "integrate.api.nvidia.com":
-            return "NVIDIA_HOSTED"
-        if host.endswith(".nvidia.com"):
+        if host == "integrate.api.nvidia.com" or host.endswith(".nvidia.com"):
             return "NVIDIA_HOSTED"
         return "CUSTOM_OPENAI_COMPATIBLE"
 
     @property
-    def inference_label(self) -> str:
+    def inference_mode(self) -> InferenceMode:
+        """Map provider settings to SpacetimeDB inference_mode (LIVE/SIMULATED/FIXTURE).
+
+        LIVE means genuine NVIDIA inference only.  Anything simulated or from
+        fixtures must be SIMULATED or FIXTURE -- never presented as live.
+        """
         if self.provider_mode == "scripted":
-            return "SIMULATED_MODEL_OUTPUT"
+            return "SIMULATED"
         if self.provider_configured and self.provider_endpoint_class == "NVIDIA_HOSTED":
+            return "LIVE"
+        return "FIXTURE"
+
+    @property
+    def inference_label(self) -> str:
+        """Backward-compatible label for health/API responses."""
+        mode = self.inference_mode
+        if mode == "LIVE":
             return "LIVE_NVIDIA_INFERENCE"
+        if mode == "SIMULATED":
+            return "SIMULATED_MODEL_OUTPUT"
+        # Unconfigured, or configured against a non-NVIDIA host: never "live".
         return "UNVERIFIED_PROVIDER"
 
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
 
-    def resolved_simulator_state_path(self) -> Path:
-        path = Path(self.simulator_state_path)
-        if path.is_absolute():
-            return path
-        # Prefer the process working directory, then the repository root
-        # (services/ai/app/config.py -> repo root is parents[3]).
-        if path.exists():
-            return path.resolve()
-        repo_root = Path(__file__).resolve().parents[3]
-        return (repo_root / path).resolve()
+    @property
+    def stdb_call_base(self) -> str:
+        """Base URL for SpacetimeDB call endpoints:
+        {STDB_URI}/v1/database/{DB}/call
+        """
+        return f"{self.backend_base_url.rstrip('/')}/v1/database/{self.stdb_db_name}/call"
 
     def safe_summary(self) -> dict[str, object]:
         """Non-secret configuration summary for /health and logs."""
@@ -177,10 +210,13 @@ class Settings(BaseSettings):
             "provider_mode": self.provider_mode,
             "provider_endpoint_class": self.provider_endpoint_class,
             "provider_configured": self.provider_configured,
+            "inference_mode": self.inference_mode,
             "inference_label": self.inference_label,
             "model_identifier": self.nvidia_model if self.provider_mode == "live" else "scripted-local-test-model",
             "backend_mode": self.backend_mode,
-            "backend_configured": self.backend_mode != "http" or self.backend_service_token is not None,
+            "backend_configured": self.backend_service_token is not None
+            or self.backend_mode == "simulator",
+            "agent_mode": self.agent_mode,
         }
 
 

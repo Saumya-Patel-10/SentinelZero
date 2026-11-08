@@ -5,7 +5,7 @@ import { fail, newId } from '../security/context';
 import { appendAudit } from '../security/audit';
 import { activeMembership, activeServicePrincipal, canInOrg, requireIncidentCapability } from '../security/membership';
 import { consumeRateLimit } from '../security/rateLimit';
-import { idempotencyKey, oneOf, stringList, text } from '../security/validation';
+import { idempotencyKey, oneOf, requireOpenIncident, stringList, text } from '../security/validation';
 import { guardedTx, iso, recordToolCall, requireServiceRun } from '../workflows/agentAccess';
 import { insertTask, requireAssignable } from '../workflows/tasks';
 import { AGENT_ERROR_CATEGORIES, ANALYSIS_TYPES, INFERENCE_MODES, TASK_PRIORITIES, type Role } from '../../../shared/src/enums';
@@ -25,6 +25,7 @@ export const request_agent_run = spacetimedb.reducer(
     idempotencyKey('idempotencyKey', a.idempotencyKey);
     const scopedKey = `${ctx.sender.toHexString()}:${a.idempotencyKey}`;
     if (ctx.db.agentRun.idempotencyKey.find(scopedKey)) return; // idempotent
+    requireOpenIncident(incident.status);
     consumeRateLimit(ctx, 'request_agent_run');
     const id = newId(ctx);
     ctx.db.agentRun.insert({
@@ -90,8 +91,9 @@ export const approve_recommendation = spacetimedb.reducer(
     text('reason', a.reason, { min: 0, max: LIMITS.REASON.max });
     if (rec.status === 'APPROVED') return; // idempotent
     if (rec.status !== 'PENDING') fail('INVALID_TRANSITION', `recommendation is ${rec.status}`);
-    if (incident.status === 'CLOSED') fail('INVALID_TRANSITION', 'closed incidents are read-only; reopen first');
+    requireOpenIncident(incident.status);
     requireAssignable(ctx, rec.organizationId, a.assignedIdentity);
+    consumeRateLimit(ctx, 'incident_write');
 
     const idem = `rec:${rec.id}`;
     const existingTask = ctx.db.task.idempotencyKey.find(idem);
@@ -133,10 +135,12 @@ export const approve_recommendation = spacetimedb.reducer(
 export const reject_recommendation = spacetimedb.reducer({ recommendationId: t.string(), reason: t.string() }, (ctx, a) => {
   const rec = ctx.db.recommendation.id.find(a.recommendationId);
   if (!rec) fail('NOT_FOUND', 'recommendation not found');
-  requireIncidentCapability(ctx, rec.incidentId, 'DECIDE_RECOMMENDATION');
+  const { incident } = requireIncidentCapability(ctx, rec.incidentId, 'DECIDE_RECOMMENDATION');
   text('reason', a.reason, LIMITS.REASON);
   if (rec.status === 'REJECTED') return;
   if (rec.status !== 'PENDING') fail('INVALID_TRANSITION', `recommendation is ${rec.status}`);
+  requireOpenIncident(incident.status);
+  consumeRateLimit(ctx, 'incident_write');
   ctx.db.recommendation.id.update({ ...rec, status: 'REJECTED', decidedBy: ctx.sender, decidedAt: ctx.timestamp, decisionReason: a.reason });
   appendAudit(ctx, {
     organizationId: rec.organizationId,
@@ -196,6 +200,9 @@ export const agent_claim_run = spacetimedb.reducer(
     if (run.status === 'RUNNING' && run.claimedBy?.isEqual(ctx.sender)) return; // idempotent
     if (run.status !== 'REQUESTED') fail('INVALID_TRANSITION', `agent run is ${run.status}`);
     if (!canInOrg(ctx.db, run.organizationId, run.requestedBy, 'REQUEST_AGENT_RUN')) fail('ACCESS_DENIED', 'requesting user no longer has access');
+    const incident = ctx.db.incident.id.find(run.incidentId);
+    if (!incident) fail('INCIDENT_NOT_FOUND', 'incident not found');
+    requireOpenIncident(incident.status);
     const lease = new Timestamp(ctx.timestamp.microsSinceUnixEpoch + BigInt(AGENT_RUN_LEASE_SECONDS) * 1_000_000n);
     ctx.db.agentRun.id.update({
       ...run,
@@ -231,6 +238,7 @@ export const agent_submit_recommendation = spacetimedb.reducer(
   },
   (ctx, a) => {
     const run = requireServiceRun(ctx, a.runId);
+    requireOpenIncident(ctx.db.incident.id.find(run.incidentId)!.status);
     idempotencyKey('clientKey', a.clientKey);
     text('title', a.title, LIMITS.TITLE);
     text('description', a.description, LIMITS.DESCRIPTION);

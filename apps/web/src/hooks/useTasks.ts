@@ -30,6 +30,7 @@ export function useTasks() {
       priority: TaskPriority;
       assigned_identity: string;
       requires_approval?: boolean;
+      is_ai_proposed?: boolean;
     }) => {
       return await spacetimeClient.createTask(payload);
     },

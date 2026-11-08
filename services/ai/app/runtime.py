@@ -1,21 +1,53 @@
-"""Application runtime: provider/backend selection, bounded background runs."""
+"""Application runtime: provider/backend selection, bounded background runs.
+
+The runtime claims a run in SpacetimeDB (agent_claim_run), executes the bounded
+agent loop using the service-principal backend, submits a PENDING recommendation
+(agent_submit_recommendation), and marks the run terminal
+(agent_complete_run).  All persistence lives in SpacetimeDB; the in-memory store
+only tracks active runs for cancellation.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import functools
 import logging
+import secrets
+from datetime import datetime, timezone
 
-from app.agents.incident_agent import IncidentAgent
-from app.auth import Principal
-from app.backend import BackendClient
+from app.auth import RunAccess, require_authorized
+from app.backend import BackendClient, assert_pending_only
 from app.config import Settings
 from app.llm.types import ModelProvider
-from app.schemas import AnalysisAccepted, RunRecord
+from app.schemas import (
+    AnalysisAccepted,
+    AnalysisRequest,
+    FactDraft,
+    InferenceMode,
+    ProposedActionDraft,
+    Recommendation,
+    RecommendationDraft,
+    RunRecord,
+    RunStatus,
+    ToolCallRecord,
+    UncertaintyDraft,
+)
 from app.security.rate_limit import ConcurrentRunLimiter, RateLimiter
 from app.store import RunStore
 
 logger = logging.getLogger("sentinelzero.ai.runtime")
+
+AGENT_ERROR_CATEGORIES = {
+    "NONE",
+    "INVALID_JSON",
+    "PROVIDER_OUTAGE",
+    "RATE_LIMITED",
+    "TIMEOUT",
+    "UNSUPPORTED_TOOL",
+    "VALIDATION_FAILED",
+    "CANCELLED",
+    "INTERNAL",
+}
 
 
 class AppRuntime:
@@ -31,9 +63,6 @@ class AppRuntime:
         self.backend = backend
         self.provider = provider
         self.store = store
-        self.agent = IncidentAgent(
-            settings=settings, backend=backend, provider=provider, store=store
-        )
         self.rate_limiter = RateLimiter(
             per_minute=settings.rate_limit_per_minute,
             burst=settings.rate_limit_burst,
@@ -41,15 +70,29 @@ class AppRuntime:
         self.concurrency = ConcurrentRunLimiter(settings.max_concurrent_runs_per_user)
         self._tasks: dict[str, asyncio.Task] = {}
 
-    async def start(self, record: RunRecord, principal: Principal, concurrency_key: str) -> None:
+    # ------------------------------------------------------------------
+    # Run lifecycle
+    # ------------------------------------------------------------------
+
+    async def start(
+        self,
+        record: RunRecord,
+        access: RunAccess,
+        concurrency_key: str,
+    ) -> None:
+        """Claim the run in SpacetimeDB and start the background agent loop."""
+        # Claim the run: transitions REQUESTED -> RUNNING with a 15-minute lease.
+        await self.backend.agent_claim_run(
+            run_id=record.run_id,
+            model_identifier=record.model_identifier,
+            inference_mode=record.inference_mode,
+        )
+
         task = asyncio.create_task(
-            self._run(record.run_id, principal),
+            self._run(record.run_id, access),
             name=f"agent-run:{record.run_id}",
         )
         self._tasks[record.run_id] = task
-        # Release the per-user slot from a done callback: if the task is cancelled
-        # before its coroutine ever starts, a `finally` block inside `_run` would
-        # never execute and the slot would leak.
         task.add_done_callback(
             functools.partial(
                 self._on_task_done,
@@ -62,24 +105,67 @@ class AppRuntime:
     def _on_task_done(
         self, _task: asyncio.Task, *, run_id: str, concurrency_key: str
     ) -> None:
+        """Release the per-user slot from a done callback.
+
+        A ``finally`` block inside ``_run`` would never run if the task is
+        cancelled before its coroutine starts, leaking the slot.
+        """
         self._tasks.pop(run_id, None)
         try:
             asyncio.create_task(self.concurrency.release(concurrency_key))
         except RuntimeError:  # event loop shutting down
             pass
 
-    async def _run(self, run_id: str, principal: Principal) -> None:
+    def _make_agent(self):
+        if self.settings.agent_mode == "single":
+            from app.agents.incident_agent import IncidentAgent
+
+            agent_cls = IncidentAgent
+        else:
+            from app.agents.orchestrator import IncidentOrchestrator
+
+            agent_cls = IncidentOrchestrator
+        return agent_cls(
+            settings=self.settings,
+            backend=self.backend,
+            provider=self.provider,
+            store=self.store,
+        )
+
+    async def _report_cancelled(self, run_id: str) -> None:
+        # agent_complete_run accepts only COMPLETED | FAILED; a service-side
+        # cancellation is FAILED with errorCategory CANCELLED.
         try:
-            await self.agent.run(run_id, principal)
+            await self.backend.agent_complete_run(
+                run_id=run_id,
+                status="FAILED",
+                error_category="CANCELLED",
+                summary="Run cancelled by user.",
+            )
+        except Exception:
+            logger.warning("runtime_cancel_backend_failed run_id=%s", run_id)
+
+    async def _run(self, run_id: str, access: RunAccess) -> None:
+        try:
+            await self._make_agent().run(run_id, access)
         except asyncio.CancelledError:
+            state = await self.store.get_state(run_id)
+            already_reported = state is not None and state.cancel_event.is_set()
             await self.store.mark_cancelled(run_id)
+            if not already_reported:
+                await self._report_cancelled(run_id)
         except Exception:
             logger.exception("runtime_agent_crash run_id=%s", run_id)
-            await self.store.fail(
-                run_id,
-                "INTERNAL_ERROR",
-                "Analysis failed safely. Manual workflows remain available.",
-            )
+            try:
+                await self.store.fail(run_id, "INTERNAL_ERROR", "Analysis failed safely.")
+                await self.backend.agent_complete_run(
+                    run_id=run_id,
+                    status="FAILED",
+                    error_category="INTERNAL",
+                    summary="Analysis failed safely. Manual workflows remain available.",
+                )
+            except Exception:
+                logger.exception("runtime_fail_complete_failed run_id=%s", run_id)
 
     async def cancel(self, run_id: str) -> None:
         state = await self.store.get_state(run_id)
@@ -90,6 +176,7 @@ class AppRuntime:
         task = state.task or self._tasks.get(run_id)
         if task and not task.done():
             task.cancel()
+        await self._report_cancelled(run_id)
 
     async def aclose(self) -> None:
         tasks = list(self._tasks.values())
@@ -99,6 +186,18 @@ class AppRuntime:
             await asyncio.gather(*tasks, return_exceptions=True)
         await self.provider.aclose()
         await self.backend.aclose()
+
+    # ------------------------------------------------------------------
+    # Acceptance response
+    # ------------------------------------------------------------------
+
+    def analysis_accepted(self, record: RunRecord) -> AnalysisAccepted:
+        return AnalysisAccepted(
+            run_id=record.run_id,
+            status=record.status,
+            inference_mode=record.inference_mode,
+            model_identifier=record.model_identifier,
+        )
 
 
 def make_provider(settings: Settings, provider_transport=None) -> ModelProvider:
@@ -111,32 +210,9 @@ def make_provider(settings: Settings, provider_transport=None) -> ModelProvider:
     return NemotronProvider(settings, transport=provider_transport)
 
 
-def acceptance_notice(provider: ModelProvider) -> tuple[bool, str]:
-    live = (
-        provider.descriptor.configured
-        and provider.descriptor.inference_label == "LIVE_NVIDIA_INFERENCE"
-    )
-    if live:
-        return True, "LIVE NVIDIA model inference. All tasks remain PENDING human approval."
-    if provider.descriptor.mode == "scripted":
-        return False, "SIMULATED model output (not live inference). Proposals require human approval."
-    if provider.descriptor.endpoint_class == "CUSTOM_OPENAI_COMPATIBLE":
-        return False, (
-            "Custom OpenAI-compatible endpoint; NVIDIA live inference is not attested. "
-            "Proposals require human approval."
-        )
-    return False, "Model provider is not configured for live inference. Proposals require approval."
-
-
-def analysis_accepted(record: RunRecord, provider: ModelProvider) -> AnalysisAccepted:
-    live, notice = acceptance_notice(provider)
-    return AnalysisAccepted(
-        run_id=record.run_id,
-        status=record.status,
-        incident_id=record.incident_id,
-        provider_mode=record.provider_mode,
-        inference_label=record.inference_label,
-        live_inference=live,
-        exercise_label=record.exercise_label,
-        notice=notice,
-    )
+def acceptance_notice(inference_mode: InferenceMode) -> str:
+    if inference_mode == "LIVE":
+        return "LIVE NVIDIA model inference. All proposals require human approval."
+    if inference_mode == "SIMULATED":
+        return "SIMULATED model output (not live inference). Proposals require human approval."
+    return "Fixture or unverified provider output. Proposals require human approval."

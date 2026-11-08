@@ -85,13 +85,12 @@ def create_app(
     backend: BackendClient | None = None,
     provider: Any | None = None,
     store: RunStore | None = None,
-    backend_state: dict | None = None,
     provider_transport: Any | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings)
 
-    selected_backend = backend or make_backend(settings, state=backend_state)
+    selected_backend = backend or make_backend(settings)
     selected_provider = provider or make_provider(settings, provider_transport)
     selected_store = store or RunStore(
         ttl_seconds=settings.run_ttl_seconds, max_runs=settings.max_stored_runs

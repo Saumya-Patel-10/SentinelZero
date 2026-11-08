@@ -1,136 +1,183 @@
-"""Caller authentication.
+"""Caller authentication for the AI service.
 
-The caller is derived only from a verified JWT. Client-supplied user, role,
-tenant, and approval fields are never trusted. Fine-grained incident membership
-is checked independently by the backend on every run/tool/submit operation.
+Authorization is delegated to SpacetimeDB's ``verify_agent_run_access`` procedure,
+which is called with the caller's bearer token (forwarded, never logged).  The
+procedure checks active membership and role server-side and returns
+``authorized=false`` without disclosing why.
+
+The AI service never authorizes from JWT ``org_id`` or ``roles`` claims -- those
+claims are not issued or checked by SpacetimeDB (see
+docs/INTEGRATION_CONTRACT.md section 5.4).
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
 from typing import Any
 
-import jwt
-from fastapi import Depends, Request
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import Request
 
+from app.backend import BackendClient
 from app.config import Settings
 from app.errors import ACCESS_DENIED, AUTH_REQUIRED, SERVICE_UNAVAILABLE, ApiError
 
-CANONICAL_ROLES = frozenset({"OWNER", "COMMANDER", "ANALYST", "RESPONDER", "OBSERVER"})
-ANALYSIS_ROLES = frozenset({"OWNER", "COMMANDER", "ANALYST"})
-READ_RUN_ROLES = frozenset({"OWNER", "COMMANDER", "ANALYST", "RESPONDER"})
+logger = logging.getLogger("sentinelzero.ai.auth")
 
-_bearer = HTTPBearer(auto_error=False)
+ANALYSIS_ROLES = frozenset({"OWNER", "COMMANDER", "ANALYST"})
+DECIDE_RECOMMENDATION_ROLES = frozenset({"OWNER", "COMMANDER"})
 
 
 @dataclass(frozen=True)
-class Principal:
-    subject: str
+class RunAccess:
+    """Result of verify_agent_run_access for a specific run."""
+
+    authorized: bool
+    is_requester: bool
+    role: str | None
+    run_id: str
+    incident_id: str
     organization_id: str
-    roles: tuple[str, ...]
-    display_name: str | None = None
-    token_id: str | None = None
-    expires_at: datetime | None = None
+    status: str
 
     @property
-    def is_analysis_authorized(self) -> bool:
-        return any(role in ANALYSIS_ROLES for role in self.roles)
+    def can_analyze(self) -> bool:
+        return self.authorized and self.is_requester and self.status == "REQUESTED"
+
+    @property
+    def can_read_run(self) -> bool:
+        return self.authorized
+
+    @property
+    def can_cancel(self) -> bool:
+        return self.authorized and (
+            self.is_requester or (self.role or "") in DECIDE_RECOMMENDATION_ROLES
+        )
 
 
 def _settings(request: Request) -> Settings:
     return request.app.state.settings
 
 
-def _decode(token: str, settings: Settings) -> dict[str, Any]:
-    if not settings.auth_configured:
-        raise ApiError(
-            503,
-            SERVICE_UNAVAILABLE,
-            "Authentication is not configured.",
-            details={"category": "AUTH_NOT_CONFIGURED"},
-        )
-    if settings.jwt_algorithm == "RS256":
-        key: Any = settings.jwt_public_key.get_secret_value() if settings.jwt_public_key else None
-    else:
-        key = settings.jwt_secret.get_secret_value() if settings.jwt_secret else None
-    try:
-        return jwt.decode(
-            token,
-            key=key,
-            algorithms=[settings.jwt_algorithm],
-            audience=settings.jwt_audience,
-            issuer=settings.jwt_issuer,
-            leeway=settings.jwt_leeway_seconds,
-            options={
-                "require": ["exp", "iat", "sub", "iss", "aud"],
-                "verify_signature": True,
-                "verify_exp": True,
-                "verify_iat": True,
-                "verify_aud": True,
-                "verify_iss": True,
-            },
-        )
-    except jwt.PyJWTError as exc:
-        # Never echo the library detail; it can include attacker-controlled claims.
-        raise ApiError(
-            401,
-            AUTH_REQUIRED,
-            "Invalid or expired credentials.",
-            headers={"WWW-Authenticate": "Bearer"},
-        ) from exc
+def _backend(request: Request) -> BackendClient:
+    return request.app.state.backend
 
 
-async def get_principal(
-    request: Request,
-    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
-) -> Principal:
-    if credentials is None or credentials.scheme.lower() != "bearer":
+def extract_bearer_token(request: Request) -> str:
+    """Extract and validate the presence of a bearer token from the request.
+
+    The token itself is forwarded to SpacetimeDB for verification; it is not
+    decoded or trusted here.
+    """
+    authorization = request.headers.get("authorization")
+    if not authorization or not authorization.lower().startswith("bearer "):
         raise ApiError(
             401,
             AUTH_REQUIRED,
             "A bearer token is required.",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    token = authorization[len("Bearer "):].strip()
+    if not token or len(token) > 8_192:
+        raise ApiError(
+            401,
+            AUTH_REQUIRED,
+            "A bearer token is required.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return token
+
+
+def caller_key(token: str) -> str:
+    """Stable, non-reversible key for the caller behind an ACCEPTED token.
+
+    Used only for rate-limit and concurrency buckets, and only after SpacetimeDB
+    has accepted the token in ``verify_agent_run_access``.  SpacetimeDB derives
+    an identity from (iss, sub), so the same pair is used here; an opaque token
+    falls back to its own hash.  Never used for authorization.
+    """
+    import jwt
+
+    material = token
+    try:
+        claims = jwt.decode(token, options={"verify_signature": False})
+        if isinstance(claims, dict) and claims.get("sub"):
+            material = f"{claims.get('iss', '')}|{claims['sub']}"
+    except jwt.PyJWTError:
+        pass
+    import hashlib
+
+    return "user_" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:24]
+
+
+async def verify_run_access(
+    run_id: str,
+    request: Request,
+) -> RunAccess:
+    """Verify the caller's access to a run via SpacetimeDB.
+
+    Extracts the bearer token from the request and forwards it to
+    ``verify_agent_run_access``.  Returns the access decision.  Raises 401 if
+    authentication is not configured or the token is missing; returns
+    authorized=false as a RunAccess value when SpacetimeDB denies access.
+    """
     settings = _settings(request)
-    claims = _decode(credentials.credentials, settings)
+    backend = _backend(request)
 
-    subject = claims.get("sub")
-    organization_id = claims.get("org_id")
-    raw_roles = claims.get("roles")
-    if not isinstance(subject, str) or not subject.strip():
-        raise ApiError(401, AUTH_REQUIRED, "Token is missing a subject.")
-    if not isinstance(organization_id, str) or not organization_id.strip():
-        raise ApiError(401, AUTH_REQUIRED, "Token is missing an organization.")
-    if not isinstance(raw_roles, list) or not all(isinstance(r, str) for r in raw_roles):
-        raise ApiError(403, ACCESS_DENIED, "Token has no recognized role.")
+    token = extract_bearer_token(request)
 
-    roles = tuple(sorted({r.upper() for r in raw_roles if r.upper() in CANONICAL_ROLES}))
-    if not roles:
-        raise ApiError(403, ACCESS_DENIED, "Token has no recognized role.")
+    if not await backend.ready():
+        raise ApiError(
+            503,
+            SERVICE_UNAVAILABLE,
+            "Backend authorization is not configured.",
+            details={"category": "BACKEND_NOT_CONFIGURED"},
+        )
 
-    expires_at = None
-    exp = claims.get("exp")
-    if isinstance(exp, (int, float)):
-        expires_at = datetime.fromtimestamp(exp, tz=timezone.utc)
+    try:
+        result = await backend.verify_agent_run_access(token, run_id)
+        return RunAccess(
+            authorized=result.authorized,
+            is_requester=result.is_requester,
+            role=result.role,
+            run_id=result.run_id,
+            incident_id=result.incident_id,
+            organization_id=result.organization_id,
+            status=result.status,
+        )
+    except ApiError:
+        raise
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.exception("verify_run_access_failed run_id=%s", run_id)
+        raise ApiError(
+            503,
+            SERVICE_UNAVAILABLE,
+            "Unable to verify run access.",
+        ) from exc
 
-    display_name = claims.get("name") if isinstance(claims.get("name"), str) else None
-    jti = claims.get("jti") if isinstance(claims.get("jti"), str) else None
 
-    return Principal(
-        subject=subject.strip()[:200],
-        organization_id=organization_id.strip()[:100],
-        roles=roles,
-        display_name=display_name[:200] if display_name else None,
-        token_id=jti[:100] if jti else None,
-        expires_at=expires_at,
-    )
+def require_authorized(access: RunAccess, *, action: str) -> None:
+    if not access.authorized:
+        raise ApiError(403, ACCESS_DENIED, f"Access denied for {action}.")
 
 
-def require_role(principal: Principal, allowed: frozenset[str], *, action: str) -> None:
-    if not any(role in allowed for role in principal.roles):
-        raise ApiError(403, ACCESS_DENIED, f"Role is not permitted to {action}.")
+def require_can_analyze(access: RunAccess) -> None:
+    if not access.can_analyze:
+        raise ApiError(
+            403,
+            ACCESS_DENIED,
+            "You must be the requester of a REQUESTED run to start analysis.",
+        )
+
+
+def require_can_read_run(access: RunAccess) -> None:
+    if not access.can_read_run:
+        raise ApiError(403, ACCESS_DENIED, "You are not authorized to read this run.")
+
+
+def require_can_cancel(access: RunAccess) -> None:
+    if not access.can_cancel:
+        raise ApiError(403, ACCESS_DENIED, "Only the requester or a commander may cancel this run.")
 
 
 # ---------------------------------------------------------------------------
@@ -147,6 +194,15 @@ def mint_test_token(
     ttl_seconds: int = 900,
     display_name: str | None = None,
 ) -> str:
+    """Mint an HS256 JWT for local tests and demos only.
+
+    The token is verified by SpacetimeDB's host (issuer policy) at connect time;
+    the AI service forwards it to verify_agent_run_access.  This helper exists
+    so tests can generate tokens without a real OIDC provider.
+    """
+    import jwt
+    from datetime import datetime, timedelta, timezone
+
     now = datetime.now(timezone.utc)
     payload: dict[str, Any] = {
         "sub": subject,

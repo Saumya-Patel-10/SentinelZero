@@ -1,9 +1,9 @@
-"""In-process, bounded run and submission store.
+"""In-process, bounded run store for active agent runs.
 
-MOCK persistence: runs are intentionally ephemeral in this branch. Agent 1 owns the
-canonical AgentRun/AgentToolCall tables. The backend contract for durable storage is
-documented in docs/deployment.md. This store never stores prompts, raw provider
-responses, approvals, or secrets.
+Persistence is owned by SpacetimeDB (agent_run / agent_tool_call /
+recommendation tables). This store only tracks active runs for cancellation
+and in-flight status. It never stores prompts, raw provider responses,
+approvals, or secrets.
 """
 
 from __future__ import annotations
@@ -17,9 +17,11 @@ from app.schemas import (
     ProviderCallRecord,
     Recommendation,
     RunRecord,
-    SubmissionResult,
+    SubagentRecord,
     ToolCallRecord,
 )
+
+TERMINAL = frozenset({"COMPLETED", "FAILED", "CANCELLED", "EXPIRED"})
 
 
 def _now() -> datetime:
@@ -31,13 +33,24 @@ class RunState:
     record: RunRecord
     cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
     task: asyncio.Task | None = None
-    submissions: dict[str, SubmissionResult] = field(default_factory=dict)
 
 
 def _replace(record: RunRecord, **updates: object) -> RunRecord:
     payload = record.model_dump()
     payload.update(updates)
     return RunRecord.model_validate(payload)
+
+
+def _settle_subagents(record: RunRecord) -> list[SubagentRecord]:
+    """A run that ends early never leaves a sub-agent looking active."""
+    settled = []
+    for item in record.subagents:
+        if item.status == "RUNNING":
+            item = item.model_copy(update={"status": "FAILED"})
+        elif item.status == "PENDING":
+            item = item.model_copy(update={"status": "SKIPPED"})
+        settled.append(item)
+    return settled
 
 
 class RunStore:
@@ -53,6 +66,30 @@ class RunStore:
             if len(self._states) >= self._max_runs:
                 self._drop_oldest_terminal_locked()
             self._states[record.run_id] = RunState(record=record)
+
+    async def create_if_absent(self, record: RunRecord) -> bool:
+        """Atomically create a run; False if this run id is already tracked."""
+        async with self._lock:
+            self._prune_locked()
+            if record.run_id in self._states:
+                return False
+            if len(self._states) >= self._max_runs:
+                self._drop_oldest_terminal_locked()
+            if len(self._states) >= self._max_runs:
+                from app.errors import SERVICE_UNAVAILABLE, ApiError
+
+                raise ApiError(
+                    503, SERVICE_UNAVAILABLE, "The AI service is at capacity. Retry later.",
+                    headers={"Retry-After": "30"},
+                )
+            self._states[record.run_id] = RunState(record=record)
+            return True
+
+    async def discard(self, run_id: str) -> None:
+        async with self._lock:
+            state = self._states.get(run_id)
+            if state is not None and state.task is None:
+                self._states.pop(run_id, None)
 
     async def get_state(self, run_id: str) -> RunState | None:
         async with self._lock:
@@ -73,7 +110,7 @@ class RunStore:
         await self._mutate(
             run_id,
             lambda record: _replace(record, status="RUNNING", started_at=record.started_at or _now()),
-            only_if=lambda record: record.status == "QUEUED",
+            only_if=lambda record: record.status in {"REQUESTED", "QUEUED"},
         )
 
     async def add_provider_call(self, run_id: str, call: ProviderCallRecord) -> None:
@@ -81,7 +118,7 @@ class RunStore:
             state = self._states.get(run_id)
             if state is None:
                 return
-            calls = [*state.record.provider_calls, call][:16]
+            calls = [*state.record.provider_calls, call][:32]
             state.record = _replace(state.record, provider_calls=calls)
 
     async def add_tool_call(self, run_id: str, call: ToolCallRecord) -> None:
@@ -89,27 +126,62 @@ class RunStore:
             state = self._states.get(run_id)
             if state is None:
                 return
-            calls = [*state.record.tool_calls, call][:32]
+            calls = [*state.record.tool_calls, call][:40]
             state.record = _replace(state.record, tool_calls=calls)
 
-    async def complete(self, run_id: str, recommendation: Recommendation) -> None:
+    async def update_subagent(self, run_id: str, subagent: SubagentRecord) -> None:
         def update(record: RunRecord) -> RunRecord:
-            if record.status in {"CANCELLED", "FAILED", "COMPLETED"}:
+            if record.status in TERMINAL:
+                return record
+            subagents = [
+                subagent if item.name == subagent.name else item for item in record.subagents
+            ]
+            return _replace(record, subagents=subagents)
+
+        await self._mutate(run_id, update)
+
+    async def set_subagents(self, run_id: str, subagents: list[SubagentRecord]) -> None:
+        await self._mutate(
+            run_id,
+            lambda record: _replace(record, subagents=subagents),
+            only_if=lambda record: record.status not in TERMINAL,
+        )
+
+    async def set_sitrep(self, run_id: str, sitrep: str) -> None:
+        await self._mutate(
+            run_id,
+            lambda record: _replace(record, sitrep=sitrep[:2000]),
+            only_if=lambda record: record.status not in TERMINAL,
+        )
+
+    async def complete(
+        self,
+        run_id: str,
+        recommendation: Recommendation,
+        *,
+        injection_suspected: bool = False,
+        redaction_counts: dict[str, int] | None = None,
+        summary: str = "",
+    ) -> None:
+        def update(record: RunRecord) -> RunRecord:
+            if record.status in TERMINAL:
                 return record
             return _replace(
                 record,
                 status="COMPLETED",
                 finished_at=_now(),
                 recommendation=recommendation,
-                injection_suspected=recommendation.injection_suspected,
-                redaction_counts=recommendation.redaction_counts,
+                injection_suspected=injection_suspected,
+                redaction_counts=dict(redaction_counts or {}),
+                summary=summary[:5000],
             )
 
         await self._mutate(run_id, update)
 
+
     async def fail(self, run_id: str, code: str, message: str) -> None:
         def update(record: RunRecord) -> RunRecord:
-            if record.status in {"CANCELLED", "COMPLETED"}:
+            if record.status in TERMINAL:
                 return record
             return _replace(
                 record,
@@ -117,50 +189,23 @@ class RunStore:
                 finished_at=_now(),
                 error_category=code[:60],
                 error_message=message[:300],
+                subagents=_settle_subagents(record),
             )
 
         await self._mutate(run_id, update)
 
     async def mark_cancelled(self, run_id: str) -> None:
         def update(record: RunRecord) -> RunRecord:
-            if record.status in {"CANCELLED", "COMPLETED", "FAILED"}:
+            if record.status in TERMINAL:
                 return record
-            return _replace(record, status="CANCELLED", finished_at=_now())
+            return _replace(
+                record,
+                status="CANCELLED",
+                finished_at=_now(),
+                subagents=_settle_subagents(record),
+            )
 
         await self._mutate(run_id, update)
-
-    async def record_submission(self, run_id: str, result: SubmissionResult) -> None:
-        async with self._lock:
-            state = self._states.get(run_id)
-            if state is None:
-                return
-            state.submissions[result.recommendation_id] = result
-            recommendation = state.record.recommendation
-            if recommendation and recommendation.recommendation_id == result.recommendation_id:
-                updated = recommendation.model_copy(
-                    update={
-                        "submitted": True,
-                        "submitted_reference": result.backend_reference,
-                    }
-                )
-                state.record = _replace(state.record, recommendation=updated)
-
-    async def get_submission(self, run_id: str, recommendation_id: str) -> SubmissionResult | None:
-        async with self._lock:
-            state = self._states.get(run_id)
-            if state is None:
-                return None
-            return state.submissions.get(recommendation_id)
-
-    async def find_by_recommendation(self, recommendation_id: str) -> RunState | None:
-        async with self._lock:
-            for state in self._states.values():
-                if (
-                    state.record.recommendation
-                    and state.record.recommendation.recommendation_id == recommendation_id
-                ):
-                    return state
-            return None
 
     async def all_states(self) -> list[RunState]:
         async with self._lock:
@@ -197,7 +242,7 @@ class RunStore:
         terminal = [
             (state.record.finished_at or state.record.created_at, run_id, state)
             for run_id, state in self._states.items()
-            if state.record.status in {"COMPLETED", "FAILED", "CANCELLED"}
+            if state.record.status in {"COMPLETED", "FAILED", "CANCELLED", "EXPIRED"}
         ]
         if terminal:
             _, run_id, _ = min(terminal, key=lambda item: item[0])

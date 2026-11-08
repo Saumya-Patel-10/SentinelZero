@@ -3,6 +3,7 @@ import { spacetimeClient } from '../services/spacetimeClient';
 import { UserProfile, Role } from '../services/contracts';
 import { MOCK_USERS } from '../fixtures/mockData';
 import { useUIStore } from '../stores/uiStore';
+import { roleHas, type Capability } from '@shared/permissions';
 
 export function useAuth() {
   const [currentUser, setCurrentUser] = useState<UserProfile>(spacetimeClient.getState().currentUser);
@@ -32,9 +33,13 @@ export function useAuth() {
   const isResponder = currentUser.role === 'RESPONDER';
   const isObserver = currentUser.role === 'OBSERVER';
 
-  const canApproveTasks = isCommander;
+  const can = (capability: Capability) => roleHas(currentUser.role, capability);
+
+  const canApproveTasks = can('APPROVE_TASK');
   const canMutate = !isObserver;
   const canReopenIncident = isCommander;
+  const canRequestAgentRun = can('REQUEST_AGENT_RUN');
+  const canViewAgentActivity = can('VIEW_AGENT_ACTIVITY');
 
   return {
     currentUser,
@@ -46,6 +51,9 @@ export function useAuth() {
     canApproveTasks,
     canMutate,
     canReopenIncident,
+    canRequestAgentRun,
+    canViewAgentActivity,
+    can,
     switchRole,
     availableUsers: MOCK_USERS,
   };

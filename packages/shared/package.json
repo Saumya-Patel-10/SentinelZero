@@ -1,14 +1,16 @@
 {
   "name": "@sentinelzero/shared",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
-  "description": "SentinelZero v1 frozen cross-agent contracts (enums, state machines, permissions, graph, AI API schemas)",
+  "description": "SentinelZero v1 frozen cross-agent contracts (enums, state machines, permissions, graph, AI API schemas, audit chain)",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./schemas": "./src/schemas.ts"
+    "./schemas": "./src/schemas.ts",
+    "./audit": "./src/auditChain.ts"
   },
   "dependencies": {
+    "@noble/hashes": "2.4.0",
     "zod": "4.6.7"
   }
 }

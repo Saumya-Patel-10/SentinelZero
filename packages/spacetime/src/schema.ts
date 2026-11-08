@@ -4,7 +4,7 @@ import { schema, table, t } from 'spacetimedb/server';
 // tables directly; they read only through the per-sender views in ./views, which re-check
 // active membership and role on every evaluation. Do not add `public: true` to any table.
 //
-// IDs: opaque UUIDv7 strings generated server-side (ctx.newUuidV7()).
+// IDs: opaque UUIDv7 strings generated server-side (context.newId). Unique, not secret.
 // Enumerated fields are strings validated against packages/shared/src/enums.ts.
 
 export const platformAdmin = table(
@@ -19,6 +19,22 @@ export const trustedIssuer = table(
   { name: 'trusted_issuer' },
   {
     issuer: t.string().primaryKey(),
+    addedBy: t.identity(),
+    addedAt: t.timestamp(),
+  }
+);
+
+/**
+ * Accepted `aud` values per trusted issuer. An issuer with no rows here is accepted for any
+ * audience (weaker; production deployments must configure at least one).
+ */
+export const trustedAudience = table(
+  { name: 'trusted_audience' },
+  {
+    /** `${issuer}\n${audience}` */
+    key: t.string().primaryKey(),
+    issuer: t.string().index('btree'),
+    audience: t.string(),
     addedBy: t.identity(),
     addedAt: t.timestamp(),
   }
@@ -373,9 +389,19 @@ export const rateLimit = table(
   }
 );
 
+/** Persistent counter that makes generated ids unique across transactions (see context.newId). */
+export const idSequence = table(
+  { name: 'id_sequence' },
+  {
+    name: t.string().primaryKey(),
+    value: t.u64(),
+  }
+);
+
 const spacetimedb = schema({
   platformAdmin,
   trustedIssuer,
+  trustedAudience,
   organization,
   userProfile,
   membership,
@@ -396,6 +422,7 @@ const spacetimedb = schema({
   recommendation,
   agentRunSweepSchedule,
   rateLimit,
+  idSequence,
 });
 
 export default spacetimedb;

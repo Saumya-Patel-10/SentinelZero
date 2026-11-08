@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useId } from 'react';
 import { X } from 'lucide-react';
 
 interface ModalProps {
@@ -8,6 +8,7 @@ interface ModalProps {
   subtitle?: string;
   children: React.ReactNode;
   maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+  testId?: string;
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -17,7 +18,10 @@ export const Modal: React.FC<ModalProps> = ({
   subtitle,
   children,
   maxWidth = 'lg',
+  testId,
 }) => {
+  const titleId = useId();
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
@@ -42,6 +46,8 @@ export const Modal: React.FC<ModalProps> = ({
     <div
       role="dialog"
       aria-modal="true"
+      aria-labelledby={titleId}
+      data-testid={testId}
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in"
     >
       <div
@@ -49,7 +55,7 @@ export const Modal: React.FC<ModalProps> = ({
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-sz-bg-border">
           <div>
-            <h2 className="text-lg font-semibold text-slate-100">{title}</h2>
+            <h2 id={titleId} className="text-lg font-semibold text-slate-100">{title}</h2>
             {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
           </div>
           <button
@@ -65,4 +71,3 @@ export const Modal: React.FC<ModalProps> = ({
     </div>
   );
 };
-

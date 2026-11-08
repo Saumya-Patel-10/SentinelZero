@@ -1,6 +1,9 @@
-"""Shared pytest fixtures and fake provider helpers.
+"""Shared pytest fixtures and fake provider/backend helpers.
 
 The fake provider is a wire-level HTTP test double, never a production fallback.
+The fake SpacetimeDB backend uses httpx.MockTransport to simulate the
+POST {STDB_URI}/v1/database/{DB}/call/{name} API (contract v1.1.0, section 5.3).
+
 Every run created with the scripted provider is labeled SIMULATED_MODEL_OUTPUT.
 """
 
@@ -14,6 +17,7 @@ import httpx
 import pytest
 
 from app.auth import mint_test_token
+from app.backend import SpacetimeDBBackendClient
 from app.config import Settings
 from app.main import create_app
 from simulator.seed import build_state, load_scenario
@@ -30,11 +34,9 @@ RESPONDER = "responder@riverbend.exercise.invalid"
 def test_settings(**overrides: Any) -> Settings:
     base = {
         "environment": "test",
-        "jwt_secret": TEST_SECRET,
-        "jwt_issuer": "sentinelzero-auth",
-        "jwt_audience": "sentinelzero-ai",
         "provider_mode": "scripted",
-        "backend_mode": "memory",
+        "stdb_db_name": "sentinelzero",
+        "backend_service_token": "test-service-token",
         "rate_limit_per_minute": 100,
         "rate_limit_burst": 10,
         "max_concurrent_runs_per_user": 5,
@@ -46,7 +48,6 @@ def test_settings(**overrides: Any) -> Settings:
     return Settings(**base)
 
 
-# Imported into test modules as a helper; pytest must not collect it as a test.
 test_settings.__test__ = False
 
 
@@ -82,21 +83,202 @@ def state(scenario: dict) -> dict:
     return build_state(scenario, phase="injected")
 
 
+# ---------------------------------------------------------------------------
+# Fake SpacetimeDB HTTP API
+# ---------------------------------------------------------------------------
+
+
+class FakeSpacetimeDB:
+    """Simulates the SpacetimeDB call endpoint for tests.
+
+    Register handlers with ``on("procedure_name", handler)`` where handler
+    receives the positional args list and returns a JSON-serializable result.
+    For agent_get_* procedures, return [0, value] or [1, "CODE: detail"].
+    """
+
+    def __init__(self) -> None:
+        self.handlers: dict[str, Callable[[list[Any]], Any]] = {}
+        self.requests: list[dict[str, Any]] = []
+        self.run_status: dict[str, str] = {}
+        self.run_inference_mode: dict[str, str] = {}
+        self.run_model_identifier: dict[str, str] = {}
+
+    def on(self, name: str, handler: Callable[[list[Any]], Any]) -> None:
+        self.handlers[name] = handler
+
+    def set_run(
+        self,
+        run_id: str,
+        *,
+        status: str = "REQUESTED",
+        inference_mode: str = "SIMULATED",
+        model_identifier: str = "scripted-local-test-model",
+        incident_id: str = INCIDENT,
+        organization_id: str = ORG,
+    ) -> None:
+        self.run_status[run_id] = status
+        self.run_inference_mode[run_id] = inference_mode
+        self.run_model_identifier[run_id] = model_identifier
+        self._incident_id[run_id] = incident_id
+        self._organization_id[run_id] = organization_id
+
+    # internal
+    _incident_id: dict[str, str] = {}
+    _organization_id: dict[str, str] = {}
+
+    async def __call__(self, request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode("utf-8"))
+        path = request.url.path
+        # path is /call/{name}
+        parts = path.strip("/").split("/")
+        name = parts[-1] if parts else ""
+        self.requests.append(
+            {
+                "method": request.method,
+                "url": str(request.url),
+                "headers": dict(request.headers),
+                "body": body,
+            }
+        )
+        handler = self.handlers.get(name)
+        if handler is None:
+            return httpx.Response(404, text=f"unknown procedure {name}")
+        try:
+            result = handler(body if isinstance(body, list) else [])
+        except Exception as exc:
+            return httpx.Response(530, text=f"INTERNAL: {exc}")
+        if name.startswith("agent_get_"):
+            # result envelope: [0, value] or [1, "CODE: detail"]
+            if isinstance(result, tuple) and len(result) == 2 and result[0] == 1:
+                return httpx.Response(200, json=[1, result[1]])
+            return httpx.Response(200, json=[0, result])
+        return httpx.Response(200, json=result)
+
+    @property
+    def transport(self) -> httpx.MockTransport:
+        return httpx.MockTransport(self)
+
+
+def make_fake_stdb() -> FakeSpacetimeDB:
+    stdb = FakeSpacetimeDB()
+
+    # Default handlers
+    stdb.on(
+        "verify_agent_run_access",
+        lambda args: [
+            True,
+            True,
+            "ANALYST",
+            args[0] if args else "run_test",
+            INCIDENT,
+            ORG,
+            "REQUESTED",
+        ],
+    )
+    stdb.on("agent_claim_run", lambda args: None)
+    stdb.on("agent_get_incident", lambda args: _fake_incident(args[0] if args else ""))
+    stdb.on("agent_get_assets", lambda args: _fake_assets(args[0] if args else ""))
+    stdb.on(
+        "agent_get_dependencies",
+        lambda args: _fake_dependencies(args[0] if args else ""),
+    )
+    stdb.on("agent_get_open_tasks", lambda args: _fake_tasks(args[0] if args else ""))
+    stdb.on(
+        "agent_get_evidence_summaries",
+        lambda args: _fake_evidence(args[0] if args else ""),
+    )
+    stdb.on("agent_submit_recommendation", lambda args: f"rec_{args[0] if args else ''}")
+    stdb.on("agent_complete_run", lambda args: None)
+
+    return stdb
+
+
+def _fake_incident(run_id: str) -> dict:
+    return {
+        "runId": run_id,
+        "analysisType": "intake",
+        "incidentId": INCIDENT,
+        "title": "Suspected ransomware affecting clinical systems (EXERCISE)",
+        "description": "Synthetic ransomware incident for testing.",
+        "category": "RANSOMWARE",
+        "severity": "CRITICAL",
+        "status": "INVESTIGATING",
+        "dataClass": "EXERCISE",
+        "reportedAt": "2026-03-14T01:52:00Z",
+        "detectedAt": "2026-03-14T01:47:00Z",
+        "updatedAt": "2026-03-14T02:10:00Z",
+    }
+
+
+def _fake_assets(run_id: str) -> list[dict]:
+    return [
+        {
+            "id": "ast_ehr_db",
+            "name": "EHR DB (exercise)",
+            "assetType": "DATABASE",
+            "criticality": "CRITICAL",
+            "compromiseStatus": "SUSPECTED",
+            "availabilityStatus": "DEGRADED",
+            "lastVerifiedAt": "2026-03-14T01:49:00Z",
+            "dataScopes": [],
+        }
+    ]
+
+
+def _fake_dependencies(run_id: str) -> dict:
+    return {
+        "services": [],
+        "dependencies": [],
+        "impacts": [],
+    }
+
+
+def _fake_tasks(run_id: str) -> list[dict]:
+    return []
+
+
+def _fake_evidence(run_id: str) -> list[dict]:
+    return [
+        {
+            "id": "ev_edr_alert",
+            "evidenceType": "EDR_ALERT",
+            "source": "Exercise EDR console",
+            "sha256": "auto",
+            "classification": "INTERNAL",
+            "description": "EDR alert for affected EHR application",
+            "recordedAt": "2026-03-14T01:49:00Z",
+        }
+    ]
+
+
+# ---------------------------------------------------------------------------
+# App and client factories
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="session")
+def stdb() -> FakeSpacetimeDB:
+    return make_fake_stdb()
+
+
 @pytest.fixture()
-async def app_factory(state):
+async def app_factory(stdb: FakeSpacetimeDB | None = None):
+    if stdb is None:
+        stdb = make_fake_stdb()
     apps = []
 
     def make(
         *,
         settings: Settings | None = None,
         provider: Any | None = None,
-        backend_state: dict | None = None,
     ):
-        application = create_app(
-            settings=settings or test_settings(),
-            backend_state=backend_state if backend_state is not None else state,
-            provider=provider,
+        application = create_app(settings=settings or test_settings())
+        # Replace the backend with a SpacetimeDB client pointed at the fake.
+        backend = SpacetimeDBBackendClient(
+            application.state.settings, transport=stdb.transport
         )
+        application.state.backend = backend
+        application.state.runtime.backend = backend
         apps.append(application)
         return application
 
@@ -142,7 +324,7 @@ async def wait_for_run(
 def recommendation_payload(
     *,
     evidence_ids: list[str] | None = None,
-    include_task: bool = True,
+    include_action: bool = True,
     summary: str | None = None,
 ) -> dict:
     evidence_ids = evidence_ids or ["ev_edr_alert"]
@@ -150,27 +332,27 @@ def recommendation_payload(
         {
             "statement": "An EDR alert is recorded for the affected EHR application.",
             "evidence_ids": [evidence_ids[0]],
+            "verification": "SUSPECTED",
             "confidence": 0.9,
-            "verification_status": "SUSPECTED",
         }
     ]
-    tasks = []
-    if include_task:
-        tasks.append(
+    actions = []
+    if include_action:
+        actions.append(
             {
                 "title": "Preserve evidence for the incident",
                 "description": "Preserve and hash authorized evidence; do not delete sources.",
-                "priority": "CRITICAL",
+                "priority": "P1",
                 "rationale": "Evidence must be preserved before recovery.",
                 "evidence_ids": [evidence_ids[0]],
-                "evidence_basis": "EVIDENCE_BACKED",
-                "risk_level": "LOW",
-                "assigned_role": "ANALYST",
+                "uncertainties": [],
             }
         )
     return {
-        "summary": summary
-        or "Suspected ransomware; exfiltration remains UNKNOWN. Proposals require human approval.",
+        "title": summary or "Suspected ransomware; exfiltration remains UNKNOWN.",
+        "description": "Synthetic exercise recommendation for human approval.",
+        "priority": "P1",
+        "rationale": "Preserve evidence and investigate impact.",
         "facts": facts,
         "uncertainties": [
             {
@@ -181,9 +363,22 @@ def recommendation_payload(
                 "related_evidence_ids": evidence_ids[:1],
             }
         ],
-        "proposed_tasks": tasks,
+        "proposed_actions": actions,
         "limitations": ["Test double response."],
     }
+
+
+def read_calls() -> list[tuple[str, str, str]]:
+    return [
+        ("call_inc", "get_incident", "{}"),
+        ("call_assets", "get_assets", "{}"),
+        ("call_evidence", "get_evidence_summaries", "{}"),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Fake Nemotron provider (OpenAI-compatible HTTP test double)
+# ---------------------------------------------------------------------------
 
 
 class FakeNemotron:
@@ -267,74 +462,3 @@ class FakeNemotron:
             },
             headers={"x-request-id": "req-fake-final"},
         )
-
-
-def read_calls() -> list[tuple[str, str, str]]:
-    return [
-        ("call_inc", "get_incident", "{}"),
-        ("call_assets", "get_assets", "{}"),
-        ("call_evidence", "get_evidence_summaries", "{}"),
-    ]
-
-
-class RecordingBackend:
-    """Wrap a backend and record the exact submission payload."""
-
-    def __init__(self, inner):
-        self.inner = inner
-        self.mode = inner.mode
-        self.contract_version = inner.contract_version
-        self.submissions: list[dict[str, Any]] = []
-
-    def __getattr__(self, name):
-        return getattr(self.inner, name)
-
-    async def authorize_incident(self, principal, incident_id, action):
-        return await self.inner.authorize_incident(principal, incident_id, action)
-
-    async def get_incident(self, incident_id):
-        return await self.inner.get_incident(incident_id)
-
-    async def get_assets(self, incident_id):
-        return await self.inner.get_assets(incident_id)
-
-    async def get_dependencies(self, incident_id):
-        return await self.inner.get_dependencies(incident_id)
-
-    async def get_open_tasks(self, incident_id):
-        return await self.inner.get_open_tasks(incident_id)
-
-    async def get_evidence_summaries(self, incident_id):
-        return await self.inner.get_evidence_summaries(incident_id)
-
-    async def ready(self):
-        return await self.inner.ready()
-
-    async def submit_recommendation(self, *, recommendation, requested_by, idempotency_key):
-        self.submissions.append(
-            {
-                "recommendation": recommendation.model_dump(mode="json"),
-                "requested_by": requested_by,
-                "idempotency_key": idempotency_key,
-            }
-        )
-        return await self.inner.submit_recommendation(
-            recommendation=recommendation,
-            requested_by=requested_by,
-            idempotency_key=idempotency_key,
-        )
-
-    async def aclose(self):
-        await self.inner.aclose()
-
-
-def make_recording_app(app_factory, state):
-    from app.backend import MemoryBackendClient
-
-    backend = RecordingBackend(MemoryBackendClient(state=state))
-    application = app_factory(backend_state=state)
-    # Replace the backend and runtime backend reference for the submission path.
-    application.state.backend = backend
-    application.state.runtime.backend = backend
-    application.state.runtime.agent.backend = backend
-    return application, backend

@@ -43,6 +43,17 @@ export function activeMembershipsOf(db: ReadDb, identity: Identity): MembershipR
   return out;
 }
 
+/**
+ * Any unrevoked membership row, ignoring user-disable and organization status. Use for
+ * role-separation invariants, where a temporarily disabled member is still a human member.
+ */
+export function hasUnrevokedMembership(db: ReadDb, identity: Identity): boolean {
+  for (const m of db.membership.userIdentity.filter(identity)) {
+    if (m.revokedAt === undefined) return true;
+  }
+  return false;
+}
+
 export function activeServicePrincipal(db: ReadDb, organizationId: string, identity: Identity): ServicePrincipalRow | undefined {
   if (!isOrgActive(db, organizationId)) return undefined;
   for (const sp of db.servicePrincipal.by_org_identity.filter([organizationId, identity])) {

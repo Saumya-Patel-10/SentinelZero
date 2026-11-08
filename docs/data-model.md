@@ -5,7 +5,7 @@ Source of truth: `packages/spacetime/src/schema.ts`. Enum values are in `package
 ## Conventions
 
 - **Every table is private.** Clients read only through the per-sender views listed in `docs/api-contracts.md` section 5.
-- **IDs** are opaque UUIDv7 strings generated on the server with `ctx.newUuidV7()`. Clients never supply IDs for new rows.
+- **IDs** are opaque UUIDv7 strings generated on the server by `newId` (`packages/spacetime/src/security/context.ts`). Clients never supply IDs for new rows. The UUID counter field comes from the persisted `id_sequence` counter, because `ctx.newUuidV7()` in 2.14.1 seeds its RNG only from the transaction timestamp and produced duplicate IDs (and a unique-constraint panic) when two transactions shared a timestamp. IDs are unique, **not secret**: authorization never depends on an ID being unguessable.
 - **Enumerated fields** are `string` columns validated on every write against `packages/shared/src/enums.ts`. They are not SpacetimeDB sum types, so clients get readable values and enums can be extended without a breaking schema migration.
 - **Actor columns** (`createdBy`, `grantedBy`, `senderIdentity`, `recordedBy`, `approvedBy`, `decidedBy`, `requestedBy`, `claimedBy`, `actorIdentity`) are always set from `ctx.sender`.
 - **`version: u32`** provides optimistic concurrency on mutable rows. It starts at 1 and increments on every update.
@@ -24,7 +24,7 @@ Source of truth: `packages/spacetime/src/schema.ts`. Enum values are in `package
 | `organization` | `id` | `name`, `status` (ACTIVE or SUSPENDED), `dataClass` |
 | `user_profile` | `identity` | `displayName`, `disabledAt?` (platform-level kill switch) |
 | `membership` | `id`; indexes `by_org_user(organizationId, userIdentity)` and `userIdentity` | `role`, `grantedBy`, `revokedAt?`, `revokedBy?`, `revokeReason`. Revocation is a soft delete. At most one active membership per (org, user) |
-| `service_principal` | `id`; indexes `by_org_identity`, `identity` | Non-human identity (the AI service). It never holds a membership, and a human member cannot be registered as one |
+| `service_principal` | `id`; indexes `by_org_identity`, `identity` | Non-human identity (the AI service). It never holds a membership, and a human member (including a currently disabled one) cannot be registered as one |
 
 ### Incident and impact graph
 
@@ -73,14 +73,15 @@ The genesis `previousHash` is 64 zeros. `computeAuditHash` is in `packages/space
 | Table | Purpose |
 |---|---|
 | `agent_run_sweep_schedule` | Runs the scheduled reducer `sweep_agent_runs` every 60 s, internal only, to expire stale runs |
-| `rate_limit` | Fixed-window counters keyed by `<action>:<senderHex>` |
+| `rate_limit` | Fixed-window counters keyed by `<action>:<senderHex>`. Actions and budgets are `RATE_LIMITS` in `packages/shared/src/limits.ts` |
+| `id_sequence` | Single row (`name = 'id'`) holding the counter used by `newId` |
 
 ## Invariants enforced on the server
 
 1. A write requires an active membership (organization ACTIVE, user not disabled, membership not revoked) with the required capability (`packages/shared/src/permissions.ts`).
 2. Non-members get `INCIDENT_NOT_FOUND` for incident-scoped calls, which does not reveal whether the incident exists.
-3. The organization always has at least one active OWNER.
-4. Incident and task status changes follow `incidentLifecycle.ts` and `taskLifecycle.ts`. A CLOSED incident and all its children are read-only until a COMMANDER reopens it.
+3. The organization always has at least one active OWNER who is not disabled.
+4. Incident and task status changes follow `incidentLifecycle.ts` and `taskLifecycle.ts`. A CLOSED incident and all its children are read-only until a COMMANDER reopens it. The only writes still accepted on a CLOSED incident are the reopen transition, `cancel_agent_run` and `agent_complete_run` (winding down a run that was already started).
 5. A recommendation creates at most one task. This is guaranteed by both a status check and the unique task key `rec:<id>`.
 6. AI recommendations are always created PENDING and must cite evidence from the same incident or state uncertainties.
 7. Every privileged mutation appends a hash-chained `audit_event` in the same transaction.

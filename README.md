@@ -18,7 +18,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![TypeScript 5.6](https://img.shields.io/badge/TypeScript-5.6-3178C6?logo=typescript)](https://www.typescriptlang.org/)
 [![React 18](https://img.shields.io/badge/React-18-61DAFB?logo=react)](https://react.dev/)
-[![SpacetimeDB](https://img.shields.io/badge/SpacetimeDB-2.0-FF4081)](https://spacetimedb.com/)
+[![SpacetimeDB](https://img.shields.io/badge/SpacetimeDB-2.14.1-FF4081)](https://spacetimedb.com/)
 [![NVIDIA Nemotron](https://img.shields.io/badge/NVIDIA-Nemotron--4-76B900?logo=nvidia)](https://developer.nvidia.com/topics/ai/Nemotron)
 [![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3.4-38B2AC?logo=tailwindcss)](https://tailwindcss.com/)
 [![Tests Passing](https://img.shields.io/badge/Tests-13%2F13%20Passing-emerald)](apps/web)
@@ -213,7 +213,7 @@ sentinelzero/
 - **Node.js:** v18.0.0 or higher (v20+ recommended)
 - **Package Manager:** `pnpm` (v9+) or `npm`
 - **Python:** 3.11+ (for AI service)
-- **SpacetimeDB CLI:** v2.0+ (for backend module deployment)
+- **SpacetimeDB CLI:** exactly 2.14.1 (matches the pinned `spacetimedb` npm package and the committed bindings)
 
 ---
 
@@ -253,17 +253,19 @@ Open **`http://localhost:5173`** in your browser.
 
 To compile and publish the SpacetimeDB transactional module:
 
+Integration contract (connection, auth, views, reducers, AI flow): [`docs/INTEGRATION_CONTRACT.md`](docs/INTEGRATION_CONTRACT.md). Security guarantees and limits: [`docs/SECURITY_MODEL.md`](docs/SECURITY_MODEL.md).
+
 ```powershell
-cd packages/spacetime
+# From the repo root. Requires the SpacetimeDB 2.14.1 CLI.
+$env:SPACETIME_CLI = "<path to spacetimedb-cli 2.14.1>"   # or have `spacetime` on PATH
+npm run setup                 # npm ci for packages/shared and packages/spacetime
+npm run typecheck
+npm run test:unit             # no server needed
 
-# Install module dependencies
-npm install
-
-# Run backend unit and integration tests
-npm test
-
-# Publish module to local SpacetimeDB instance
-spacetime publish --server local sentinelzero
+# Integration tests and the demo need a local server (ES256 dev keys, never committed):
+& $env:SPACETIME_CLI start --listen-addr 127.0.0.1:3000 --in-memory --jwt-pub-key-path <dir>\id_ecdsa.pub --jwt-priv-key-path <dir>\id_ecdsa
+npm run test:integration      # publishes a throwaway database per run
+npm run build; npm run seed:demo   # EXERCISE org + one account per role; tokens go to packages/spacetime/.demo/ (git-ignored)
 ```
 
 ---

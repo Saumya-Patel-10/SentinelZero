@@ -48,5 +48,20 @@ describe('Role Authorization Matrix & Reducer Privilege Checks', () => {
       })
     ).rejects.toThrowError(/ACCESS_DENIED/);
   });
+
+  it('follows the shared capability matrix: RESPONDER cannot create tasks, ANALYST cannot approve', async () => {
+    spacetimeClient.setCurrentUser(MOCK_USERS[2]); // Responder
+    await expect(
+      spacetimeClient.createTask({
+        title: 'Responder task',
+        description: 'Should fail',
+        priority: 'LOW',
+        assigned_identity: 'identity_elena_rostova',
+      })
+    ).rejects.toThrowError(/ACCESS_DENIED/);
+
+    spacetimeClient.setCurrentUser(MOCK_USERS[1]); // Analyst
+    await expect(spacetimeClient.approveTask('tsk_06')).rejects.toThrowError(/ACCESS_DENIED/);
+  });
 });
 

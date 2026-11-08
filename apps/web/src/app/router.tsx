@@ -1,15 +1,23 @@
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { useUIStore } from '../stores/uiStore';
 import { TopBar } from '../components/layout/TopBar';
 import { Sidebar } from '../components/layout/Sidebar';
 import { ConnectionBanner } from '../components/layout/ConnectionBanner';
 import { CommandCenterPage } from '../pages/CommandCenterPage';
-import { ImpactGraphPage } from '../pages/ImpactGraphPage';
-import { TasksPage } from '../pages/TasksPage';
-import { CommunicationsPage } from '../pages/CommunicationsPage';
-import { AdminPage } from '../pages/AdminPage';
 import { AIRunPanel } from '../components/ai/AIRunPanel';
-import { CheckSquare, LayoutDashboard, MessageSquare, Network, Shield } from 'lucide-react';
+import { CheckSquare, LayoutDashboard, Loader2, MessageSquare, Network } from 'lucide-react';
+
+const ImpactGraphPage = lazy(() => import('../pages/ImpactGraphPage').then((m) => ({ default: m.ImpactGraphPage })));
+const TasksPage = lazy(() => import('../pages/TasksPage').then((m) => ({ default: m.TasksPage })));
+const CommunicationsPage = lazy(() => import('../pages/CommunicationsPage').then((m) => ({ default: m.CommunicationsPage })));
+const AdminPage = lazy(() => import('../pages/AdminPage').then((m) => ({ default: m.AdminPage })));
+
+const PageFallback: React.FC = () => (
+  <div role="status" aria-live="polite" className="flex items-center gap-2 p-6 text-xs font-mono text-slate-400">
+    <Loader2 className="w-4 h-4 motion-safe:animate-spin" aria-hidden="true" />
+    Loading view…
+  </div>
+);
 
 export const AppRouter: React.FC = () => {
   const currentView = useUIStore((s) => s.currentView);
@@ -43,7 +51,9 @@ export const AppRouter: React.FC = () => {
         <Sidebar />
 
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 bg-sz-bg-base/60">
-          <div className="max-w-7xl mx-auto">{renderActiveView()}</div>
+          <div className="max-w-7xl mx-auto">
+            <Suspense fallback={<PageFallback />}>{renderActiveView()}</Suspense>
+          </div>
         </main>
       </div>
 
