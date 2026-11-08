@@ -3,7 +3,8 @@ import spacetimedb from '../schema';
 import { fail, newId } from '../security/context';
 import { appendAudit } from '../security/audit';
 import { activeMembership, requireIncidentCapability, requireOrgCapability } from '../security/membership';
-import { expectVersion, idempotencyKey, oneOf, text } from '../security/validation';
+import { consumeRateLimit } from '../security/rateLimit';
+import { expectVersion, idempotencyKey, oneOf, requireOpenIncident, text } from '../security/validation';
 import { INCIDENT_CATEGORIES, INCIDENT_STATUSES, SEVERITIES, type IncidentStatus } from '../../../shared/src/enums';
 import { classifyIncidentTransition, REOPEN_REASON_MIN_LENGTH } from '../../../shared/src/incidentLifecycle';
 import { LIMITS } from '../../../shared/src/limits';
@@ -36,6 +37,7 @@ export const create_incident = spacetimedb.reducer(
       if (existing.createdBy.isEqual(ctx.sender)) return; // idempotent replay
       fail('VALIDATION_FAILED', 'idempotencyKey already used');
     }
+    consumeRateLimit(ctx, 'create_incident');
 
     const org = ctx.db.organization.id.find(args.organizationId)!;
     const id = newId(ctx);
@@ -84,7 +86,8 @@ export const update_incident = spacetimedb.reducer(
     text('description', args.description, LIMITS.DESCRIPTION);
     oneOf('category', INCIDENT_CATEGORIES, args.category);
     oneOf('severity', SEVERITIES, args.severity);
-    if (incident.status === 'CLOSED') fail('INVALID_TRANSITION', 'closed incidents are read-only; reopen first');
+    requireOpenIncident(incident.status);
+    consumeRateLimit(ctx, 'incident_write');
     ctx.db.incident.id.update({
       ...incident,
       title: args.title,
@@ -131,6 +134,7 @@ export const transition_incident_status = spacetimedb.reducer(
         fail('VALIDATION_FAILED', `reopen requires an explanation of at least ${REOPEN_REASON_MIN_LENGTH} characters`);
       }
     }
+    consumeRateLimit(ctx, 'incident_write');
 
     ctx.db.incident.id.update({ ...incident, status: to, updatedAt: ctx.timestamp, version: incident.version + 1 });
     appendAudit(ctx, {
@@ -149,8 +153,10 @@ export const assign_incident_commander = spacetimedb.reducer(
   (ctx, args) => {
     const { incident } = requireIncidentCapability(ctx, args.incidentId, 'ASSIGN_COMMANDER');
     expectVersion('incident', incident.version, args.expectedVersion);
+    requireOpenIncident(incident.status);
     const target = activeMembership(ctx.db, incident.organizationId, args.commanderIdentity);
     if (!target || target.role !== 'COMMANDER') fail('VALIDATION_FAILED', 'commander must be an active COMMANDER member');
+    consumeRateLimit(ctx, 'incident_write');
     ctx.db.incident.id.update({
       ...incident,
       commanderIdentity: args.commanderIdentity,
