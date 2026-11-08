@@ -35,7 +35,7 @@ export const StatusIndicator: React.FC = () => {
       {/* Latency badge */}
       <div className="hidden sm:flex items-center gap-1 px-2 py-1 rounded border bg-sz-bg-surface border-sz-bg-border text-slate-400">
         <Activity className="w-3 h-3 text-cyan-400" />
-        <span>{latencyMs}ms</span>
+        <span>{isLiveConnection ? `${latencyMs}ms` : 'local'}</span>
       </div>
 
       {/* Connection State button (clickable for testing disconnected state) */}
