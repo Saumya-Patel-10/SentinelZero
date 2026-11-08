@@ -20,6 +20,11 @@ export const LIMITS = {
 export const RATE_LIMITS = {
   send_message: { windowSeconds: 60, max: 30 },
   request_agent_run: { windowSeconds: 60, max: 5 },
+  create_incident: { windowSeconds: 60, max: 30 },
+  /** Every other incident-scoped human write (graph, data scope, evidence, tasks, decisions, lifecycle). */
+  incident_write: { windowSeconds: 60, max: 120 },
+  /** Service-principal `agent_get_*` reads; each one appends an agent_tool_call row. */
+  agent_tool_call: { windowSeconds: 60, max: 120 },
 } as const;
 
 /** Agent run lease after a service principal claims it. */
