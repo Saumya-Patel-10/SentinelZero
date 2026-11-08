@@ -12,7 +12,7 @@ describe('Role Authorization Matrix & Reducer Privilege Checks', () => {
       title: 'Emergency Firewall Rule Modification',
       description: 'Block outbound TCP 445 on perimeter interface',
       priority: 'CRITICAL',
-      assigned_identity: 'identity_elena_rostova',
+      assigned_identity: 'identity_kabir',
       requires_approval: true,
     });
 
@@ -30,7 +30,7 @@ describe('Role Authorization Matrix & Reducer Privilege Checks', () => {
   });
 
   it('rejects Observer attempting privileged mutations', async () => {
-    spacetimeClient.setCurrentUser(MOCK_USERS[3]); // Observer David Kim
+    spacetimeClient.setCurrentUser(MOCK_USERS[3]); // Observer Dean
 
     // Cannot approve tasks
     await expect(spacetimeClient.approveTask('tsk_06')).rejects.toThrowError(/ACCESS_DENIED/);
@@ -44,7 +44,7 @@ describe('Role Authorization Matrix & Reducer Privilege Checks', () => {
         title: 'Observer task',
         description: 'Should fail',
         priority: 'LOW',
-        assigned_identity: 'identity_david_kim',
+        assigned_identity: 'identity_dean',
       })
     ).rejects.toThrowError(/ACCESS_DENIED/);
   });
@@ -56,7 +56,7 @@ describe('Role Authorization Matrix & Reducer Privilege Checks', () => {
         title: 'Responder task',
         description: 'Should fail',
         priority: 'LOW',
-        assigned_identity: 'identity_elena_rostova',
+        assigned_identity: 'identity_kabir',
       })
     ).rejects.toThrowError(/ACCESS_DENIED/);
 
