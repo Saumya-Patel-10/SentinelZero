@@ -16,6 +16,7 @@ from typing import Any, Awaitable, Callable
 
 from app.backend import BackendClient
 from app.errors import (
+    AI_OUTPUT_INVALID,
     AI_TOOL_ARGUMENTS_INVALID,
     AI_TOOL_EXECUTION_FAILED,
     AI_TOOL_NOT_ALLOWED,
@@ -140,6 +141,12 @@ class ToolRegistry:
         self._merge_redaction(ctx, redaction)
         encoded = json.dumps(redacted, sort_keys=True, separators=(",", ":"))
         scan = scan_untrusted_text(encoded)
+        if scan.risk == "HIGH":
+            ctx.injection_categories.update(scan.categories)
+            raise AgentRunError(
+                AI_OUTPUT_INVALID,
+                "Analysis withheld because a tool result matched a high-risk prompt-injection pattern.",
+            )
         if scan.suspected:
             ctx.injection_categories.update(scan.categories)
         if len(encoded) > ctx.max_result_chars:
@@ -179,6 +186,8 @@ class ToolRegistry:
             raise ToolArgumentsInvalid("Tool arguments were not valid JSON.") from exc
         if not isinstance(parsed, dict):
             raise ToolArgumentsInvalid("Tool arguments must be a JSON object.")
+        if name == "query_threat_intelligence":
+            return parsed
         if name != "propose_task" and parsed:
             raise ToolArgumentsInvalid(
                 "This tool accepts no arguments; incident scope is server-injected."
