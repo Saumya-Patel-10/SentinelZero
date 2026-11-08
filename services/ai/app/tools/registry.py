@@ -23,7 +23,7 @@ from app.errors import (
     AgentRunError,
 )
 from app.llm.types import ToolCallRequest
-from app.schemas import ProposedTaskDraft
+from app.schemas import ProposedActionDraft
 from app.security.guardrails import (
     ALLOWED_TOOL_NAMES,
     FORBIDDEN_TOOL_NAMES,
@@ -64,7 +64,7 @@ class ToolContext:
     cancel_event: asyncio.Event
     max_result_chars: int
     backend_timeout_seconds: float
-    proposals: list[ProposedTaskDraft] = field(default_factory=list)
+    proposals: list[ProposedActionDraft] = field(default_factory=list)
     allowed_evidence_ids: set[str] = field(default_factory=set)
     injection_categories: set[str] = field(default_factory=set)
     redaction_counts: dict[str, int] = field(default_factory=dict)

@@ -1,0 +1,20 @@
+{
+  "name": "sentinelzero",
+  "version": "1.1.0",
+  "private": true,
+  "description": "SentinelZero workspace orchestration. Each package keeps its own lockfile; this file only runs them.",
+  "scripts": {
+    "setup": "npm ci --prefix packages/shared && npm ci --prefix packages/spacetime",
+    "typecheck": "npm run typecheck --prefix packages/spacetime",
+    "build": "npm run build --prefix packages/spacetime",
+    "generate": "npm run generate --prefix packages/spacetime",
+    "test:unit": "npm run test:unit --prefix packages/spacetime",
+    "test:integration": "npm run test:integration --prefix packages/spacetime",
+    "test": "npm run typecheck && npm run test:unit && npm run test:integration",
+    "seed:demo": "npm run seed:demo --prefix packages/spacetime",
+    "migration-check": "npm run migration-check --prefix packages/spacetime"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

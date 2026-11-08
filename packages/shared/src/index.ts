@@ -1,4 +1,6 @@
-// SentinelZero v1 shared contracts. Dependency-free except ./schemas (zod), exported separately.
+// SentinelZero v1 shared contracts. Dependency-free except ./schemas (zod) and ./auditChain
+// (@noble/hashes), which are exported separately as `/schemas` and `/audit`.
+export * from './contract';
 export * from './enums';
 export * from './errors';
 export * from './limits';

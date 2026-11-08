@@ -1,520 +1,477 @@
-"""Incident backend adapters.
+"""SpacetimeDB HTTP backend client for the SentinelZero AI service.
 
-Agent 1 has not published a backend contract in this repository yet. This module
-therefore defines a deliberately narrow typed interface and two implementations:
+Replaces the legacy MOCK-1 ``/internal/v1/`` adapter, which targeted routes that
+do not exist.  All calls go through the SpacetimeDB HTTP API
+(POST {STDB_URI}/v1/database/{DB}/call/{name}) as documented in
+docs/INTEGRATION_CONTRACT.md section 5.3.
 
-* ``MemoryBackendClient`` -- reads the synthetic simulator state file. MOCK.
-* ``HttpBackendClient``   -- proposed Agent 1 HTTP contract. MOCK / UNVERIFIED.
+Two token classes are used:
 
-Both are read-only except ``submit_recommendation``, which submits a proposal with
-``approval_status=PENDING_HUMAN_APPROVAL``. No approval endpoint exists here.
-
-Exact expected Agent 1 contract (version MOCK-1) is documented in
-docs/deployment.md. Replace ``HttpBackendClient`` paths only after the published
-contract is frozen; do not silently reinterpret it.
+* **User token** (forwarded from the caller's bearer header, never logged):
+  ``verify_agent_run_access`` only.  SpacetimeDB checks active membership/role.
+* **Service-principal token** (``AI_BACKEND_SERVICE_TOKEN``): all agent
+  reducers/procedures -- claim, reads, submit, complete.  The service principal
+  is bound to one organization and holds no human membership.
 """
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
+import logging
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 from urllib.parse import quote
 
 import httpx
 
-from app.auth import ANALYSIS_ROLES, READ_RUN_ROLES, Principal
 from app.config import Settings
 from app.errors import (
     ACCESS_DENIED,
-    AI_BACKEND_NOT_READY,
+    AUTH_REQUIRED,
     INCIDENT_NOT_FOUND,
+    NOT_FOUND,
+    RATE_LIMITED,
     SERVICE_UNAVAILABLE,
+    VALIDATION_FAILED,
     ApiError,
 )
-from app.schemas import (
-    AssetContext,
-    AuthorizationDecision,
-    DataScopeContext,
-    EvidenceSummary,
-    IncidentContext,
-    OperationalImpactContext,
-    Recommendation,
-    ServiceContext,
-    ServiceDependencyContext,
-    TaskContext,
-)
 
-CONTRACT_VERSION = "MOCK-1"
-_OPEN_TASK_STATES = {"PENDING", "AWAITING_APPROVAL", "IN_PROGRESS", "BLOCKED"}
-_ACTION_ROLES = {
-    "ai.analyze": ANALYSIS_ROLES,
-    "ai.submit_recommendation": ANALYSIS_ROLES,
-    "ai.read_run": READ_RUN_ROLES,
-    "ai.cancel_run": READ_RUN_ROLES,
-    "ai.read_context": READ_RUN_ROLES,
-}
+logger = logging.getLogger("sentinelzero.ai.backend")
+
+CONTRACT_VERSION = "1.1.0"
 
 
-@dataclass
-class DependencyView:
-    dependencies: list[ServiceDependencyContext]
-    services: list[ServiceContext]
-    impacts: list[OperationalImpactContext]
-    data_scopes: list[DataScopeContext]
+# ---------------------------------------------------------------------------
+# Result envelopes returned by SpacetimeDB procedures/reducers
+# ---------------------------------------------------------------------------
 
 
-class BackendClient(Protocol):
+@dataclass(frozen=True)
+class RunAccess:
+    authorized: bool
+    is_requester: bool
+    role: str | None
+    run_id: str
+    incident_id: str
+    organization_id: str
+    status: str
+
+
+@dataclass(frozen=True)
+class AgentIncident:
+    run_id: str
+    analysis_type: str
+    incident_id: str
+    title: str
+    description: str
+    category: str
+    severity: str
+    status: str
+    data_class: str
+    reported_at: str
+    detected_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
+class AgentAsset:
+    id: str
+    name: str
+    asset_type: str
+    criticality: str
+    compromise_status: str
+    availability_status: str
+    last_verified_at: str
+    data_scopes: list[dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class AgentService:
+    id: str
+    name: str
+    criticality: str
+    availability_status: str
+    availability_verification: str
+
+
+@dataclass(frozen=True)
+class AgentDependency:
+    id: str
+    source_asset_id: str
+    target_service_id: str
+    dependency_type: str
+    verification: str
+
+
+@dataclass(frozen=True)
+class AgentImpact:
+    id: str
+    service_id: str
+    impact_type: str
+    severity: str
+    verification: str
+    affected_group: str
+    description: str
+
+
+@dataclass(frozen=True)
+class AgentDependencyGraph:
+    services: list[AgentService]
+    dependencies: list[AgentDependency]
+    impacts: list[AgentImpact]
+
+
+@dataclass(frozen=True)
+class AgentTask:
+    id: str
+    title: str
+    priority: str
+    status: str
+    approval_status: str
+    source: str
+    assigned: bool
+
+
+@dataclass(frozen=True)
+class AgentEvidence:
+    id: str
+    evidence_type: str
+    source: str
+    sha256: str
+    classification: str
+    description: str
+    recorded_at: str
+
+
+class BackendClient:
+    """Protocol for incident/agent backends."""
+
     mode: str
     contract_version: str
 
     async def ready(self) -> bool: ...
-
-    async def authorize_incident(
-        self, principal: Principal, incident_id: str, action: str
-    ) -> AuthorizationDecision: ...
-
-    async def get_incident(self, incident_id: str) -> IncidentContext: ...
-
-    async def get_assets(self, incident_id: str) -> list[AssetContext]: ...
-
-    async def get_dependencies(self, incident_id: str) -> DependencyView: ...
-
-    async def get_open_tasks(self, incident_id: str) -> list[TaskContext]: ...
-
-    async def get_evidence_summaries(self, incident_id: str) -> list[EvidenceSummary]: ...
-
-    async def submit_recommendation(
+    async def verify_agent_run_access(
+        self, user_token: str, run_id: str
+    ) -> RunAccess: ...
+    async def agent_claim_run(
+        self, run_id: str, model_identifier: str, inference_mode: str
+    ) -> None: ...
+    async def agent_get_incident(self, run_id: str) -> AgentIncident: ...
+    async def agent_get_assets(self, run_id: str) -> list[AgentAsset]: ...
+    async def agent_get_dependencies(self, run_id: str) -> AgentDependencyGraph: ...
+    async def agent_get_open_tasks(self, run_id: str) -> list[AgentTask]: ...
+    async def agent_get_evidence_summaries(self, run_id: str) -> list[AgentEvidence]: ...
+    async def agent_submit_recommendation(
         self,
         *,
-        recommendation: Recommendation,
-        requested_by: str,
-        idempotency_key: str,
+        run_id: str,
+        client_key: str,
+        title: str,
+        description: str,
+        priority: str,
+        rationale: str,
+        evidence_ids: list[str],
+        uncertainties: list[str],
     ) -> str: ...
-
+    async def agent_complete_run(
+        self,
+        *,
+        run_id: str,
+        status: str,
+        error_category: str,
+        summary: str,
+    ) -> None: ...
     async def aclose(self) -> None: ...
 
 
-def _model_list(model: type, records: list[Any], *, limit: int = 50) -> list[Any]:
-    out = []
-    for record in records[:limit]:
-        if isinstance(record, dict):
-            out.append(model.model_validate(record))
-    return out
+# ---------------------------------------------------------------------------
+# SpacetimeDB HTTP client
+# ---------------------------------------------------------------------------
 
 
-class MemoryBackendClient:
-    """MOCK incident backend backed by deterministic simulator state."""
+class SpacetimeDBBackendClient:
+    """Client for the SpacetimeDB HTTP API (contract v1.1.0, section 5.3)."""
 
-    mode = "memory"
+    mode = "spacetimedb"
     contract_version = CONTRACT_VERSION
 
-    def __init__(self, *, state_path: Path | None = None, state: dict | None = None) -> None:
-        self._state_path = state_path
-        self._static_state = state
-        self._cached_state: dict | None = None
-        self._cached_mtime: float | None = None
-        self._lock = asyncio.Lock()
-        self._submissions: dict[str, tuple[str, dict]] = {}
-
-    async def ready(self) -> bool:
-        try:
-            await self._load()
-            return True
-        except ApiError:
-            return False
-
-    async def _load(self) -> dict:
-        async with self._lock:
-            if self._static_state is not None:
-                return self._static_state
-            if self._state_path is None:
-                raise ApiError(
-                    503,
-                    SERVICE_UNAVAILABLE,
-                    "The exercise incident backend is not configured.",
-                    details={"category": AI_BACKEND_NOT_READY},
-                )
-            try:
-                mtime = self._state_path.stat().st_mtime
-            except OSError as exc:
-                raise ApiError(
-                    503,
-                    SERVICE_UNAVAILABLE,
-                    "The exercise incident backend is not seeded. Run the simulator reset command.",
-                    details={"category": AI_BACKEND_NOT_READY},
-                ) from exc
-            if self._cached_state is not None and self._cached_mtime == mtime:
-                return self._cached_state
-            try:
-                raw = self._state_path.read_text(encoding="utf-8")
-                state = json.loads(raw)
-            except (OSError, json.JSONDecodeError) as exc:
-                raise ApiError(
-                    503,
-                    SERVICE_UNAVAILABLE,
-                    "The exercise incident backend state is unreadable.",
-                    details={"category": AI_BACKEND_NOT_READY},
-                ) from exc
-            if not isinstance(state, dict) or not isinstance(state.get("assets"), list):
-                raise ApiError(
-                    503,
-                    SERVICE_UNAVAILABLE,
-                    "The exercise incident backend state is not valid.",
-                    details={"category": AI_BACKEND_NOT_READY},
-                )
-            self._cached_state = state
-            self._cached_mtime = mtime
-            return state
-
-    @staticmethod
-    def _incidents(state: dict) -> list[dict]:
-        incidents = state.get("incidents")
-        if isinstance(incidents, list):
-            return [i for i in incidents if isinstance(i, dict)]
-        incident = state.get("incident")
-        return [incident] if isinstance(incident, dict) else []
-
-    def _find_incident(self, state: dict, incident_id: str) -> dict:
-        for incident in self._incidents(state):
-            if str(incident.get("id")) == incident_id:
-                return incident
-        raise ApiError(404, INCIDENT_NOT_FOUND, "Incident was not found.")
-
-    async def authorize_incident(
-        self, principal: Principal, incident_id: str, action: str
-    ) -> AuthorizationDecision:
-        state = await self._load()
-        try:
-            incident = self._find_incident(state, incident_id)
-        except ApiError:
-            # Do not reveal whether another tenant's incident exists.
-            if principal.organization_id:
-                return AuthorizationDecision(allowed=False, reason="Not found or not authorized.")
-            raise
-        if str(incident.get("organization_id")) != principal.organization_id:
-            return AuthorizationDecision(allowed=False, reason="Incident is outside your organization.")
-        membership = None
-        for item in state.get("memberships", []):
-            if (
-                isinstance(item, dict)
-                and item.get("user_identity") == principal.subject
-                and str(item.get("organization_id")) == principal.organization_id
-                and not item.get("revoked_at")
-            ):
-                membership = item
-                break
-        if membership is None:
-            return AuthorizationDecision(allowed=False, reason="Active membership is required.")
-        role = membership.get("role")
-        allowed_roles = _ACTION_ROLES.get(action, READ_RUN_ROLES)
-        if role not in allowed_roles:
-            return AuthorizationDecision(
-                allowed=False,
-                role=role,
-                reason="Role is not permitted for this AI operation.",
-            )
-        context = IncidentContext.model_validate(incident)
-        return AuthorizationDecision(allowed=True, role=role, incident=context)
-
-    async def _require(self, incident_id: str) -> tuple[dict, dict]:
-        state = await self._load()
-        return state, self._find_incident(state, incident_id)
-
-    async def get_incident(self, incident_id: str) -> IncidentContext:
-        _, incident = await self._require(incident_id)
-        return IncidentContext.model_validate(incident)
-
-    async def get_assets(self, incident_id: str) -> list[AssetContext]:
-        state, _ = await self._require(incident_id)
-        records = [
-            a
-            for a in state.get("assets", [])
-            if isinstance(a, dict) and str(a.get("incident_id")) == incident_id
-        ]
-        records.sort(key=lambda a: str(a.get("id")))
-        return _model_list(AssetContext, records)
-
-    async def get_dependencies(self, incident_id: str) -> DependencyView:
-        state, _ = await self._require(incident_id)
-        org_id = None
-        for incident in self._incidents(state):
-            if str(incident.get("id")) == incident_id:
-                org_id = str(incident.get("organization_id"))
-                break
-        deps = sorted(
-            (d for d in state.get("service_dependencies", []) if isinstance(d, dict)),
-            key=lambda d: str(d.get("id")),
-        )
-        services = sorted(
-            (s for s in state.get("services", []) if isinstance(s, dict)),
-            key=lambda s: str(s.get("id")),
-        )
-        impacts = sorted(
-            (
-                i
-                for i in state.get("operational_impacts", [])
-                if isinstance(i, dict) and str(i.get("incident_id")) == incident_id
-            ),
-            key=lambda i: str(i.get("id")),
-        )
-        scopes = sorted(
-            (
-                d
-                for d in state.get("data_scopes", [])
-                if isinstance(d, dict) and str(d.get("incident_id")) == incident_id
-            ),
-            key=lambda d: str(d.get("id")),
-        )
-        return DependencyView(
-            dependencies=_model_list(ServiceDependencyContext, deps),
-            services=_model_list(ServiceContext, services),
-            impacts=_model_list(OperationalImpactContext, impacts),
-            data_scopes=_model_list(DataScopeContext, scopes),
-        )
-
-    async def get_open_tasks(self, incident_id: str) -> list[TaskContext]:
-        state, _ = await self._require(incident_id)
-        records = [
-            t
-            for t in state.get("tasks", [])
-            if isinstance(t, dict)
-            and str(t.get("incident_id")) == incident_id
-            and t.get("status") in _OPEN_TASK_STATES
-        ]
-        records.sort(key=lambda t: (str(t.get("priority")), str(t.get("id"))))
-        return _model_list(TaskContext, records)
-
-    async def get_evidence_summaries(self, incident_id: str) -> list[EvidenceSummary]:
-        state, _ = await self._require(incident_id)
-        records = [
-            e
-            for e in state.get("evidence_references", [])
-            if isinstance(e, dict) and str(e.get("incident_id")) == incident_id
-        ]
-        records.sort(key=lambda e: str(e.get("id")))
-        summaries = []
-        for record in records[:50]:
-            sha = str(record.get("sha256", ""))
-            summaries.append(
-                EvidenceSummary.model_validate(
-                    {
-                        "id": record.get("id"),
-                        "organization_id": record.get("organization_id"),
-                        "incident_id": record.get("incident_id"),
-                        "type": record.get("type"),
-                        "source": record.get("source"),
-                        "sha256_prefix": sha[:16] if sha else "00000000",
-                        "classification": record.get("classification"),
-                        "recorded_at": record.get("recorded_at"),
-                    }
-                )
-            )
-        return summaries
-
-    async def submit_recommendation(
+    def __init__(
         self,
+        settings: Settings,
         *,
-        recommendation: Recommendation,
-        requested_by: str,
-        idempotency_key: str,
-    ) -> str:
-        # MOCK persistence: in-process only, lost on restart. Never approves.
-        assert_pending_only(recommendation)
-        payload = {
-            "run_id": recommendation.run_id,
-            "recommendation_id": recommendation.recommendation_id,
-            "incident_id": recommendation.incident_id,
-            "organization_id": recommendation.organization_id,
-            "requested_by": requested_by,
-            "approval_status": "PENDING_HUMAN_APPROVAL",
-            "proposal": recommendation.model_dump(mode="json"),
-        }
-        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-        signature = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-        existing = self._submissions.get(idempotency_key)
-        if existing is not None:
-            return existing[0]
-        reference = f"mock-submission-{signature[:24]}"
-        self._submissions[idempotency_key] = (reference, payload)
-        return reference
-
-    async def aclose(self) -> None:
-        return None
-
-
-class HttpBackendClient:
-    """MOCK-1 Agent 1 HTTP contract. Not validated against a real deployment."""
-
-    mode = "http"
-    contract_version = CONTRACT_VERSION
-
-    def __init__(self, settings: Settings, *, transport: httpx.AsyncBaseTransport | None = None) -> None:
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
         self._settings = settings
+        self._base = settings.stdb_call_base
         self._client = httpx.AsyncClient(
-            base_url=settings.backend_base_url.rstrip("/"),
+            base_url=self._base,
             timeout=settings.backend_timeout_seconds,
             transport=transport,
             follow_redirects=False,
         )
-
-    def _headers(self) -> dict[str, str]:
-        token = (
-            self._settings.backend_service_token.get_secret_value()
-            if self._settings.backend_service_token
+        self._service_token = (
+            settings.backend_service_token.get_secret_value()
+            if settings.backend_service_token
             else ""
         )
+
+    async def ready(self) -> bool:
+        """Backend is ready when a service-principal token is configured.
+
+        Connectivity is validated lazily on the first call; health checks do
+        not make round-trips to SpacetimeDB.
+        """
+        return bool(self._service_token)
+
+    def _service_headers(self) -> dict[str, str]:
         return {
-            "X-Sentinel-Service-Token": token,
-            "Accept": "application/json",
+            "Authorization": f"Bearer {self._service_token}",
             "Content-Type": "application/json",
         }
 
-    async def ready(self) -> bool:
-        try:
-            response = await self._client.get("/internal/v1/ready", headers=self._headers())
-            return response.status_code == 200
-        except httpx.HTTPError:
-            return False
+    def _user_headers(self, user_token: str) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {user_token}",
+            "Content-Type": "application/json",
+        }
 
-    async def _json(self, response: httpx.Response) -> Any:
-        if response.status_code in (401, 403):
-            raise ApiError(403, ACCESS_DENIED, "The incident backend denied access.")
+    async def _post_json(
+        self,
+        name: str,
+        args: list[Any],
+        *,
+        user_token: str | None = None,
+    ) -> Any:
+        headers = self._user_headers(user_token) if user_token is not None else self._service_headers()
+        try:
+            response = await self._client.post(
+                f"/{quote(name, safe='')}",
+                json=args,
+                headers=headers,
+            )
+        except httpx.HTTPError as exc:
+            logger.error("stdb_call_failed name=%s error=%s", name, exc)
+            raise ApiError(503, SERVICE_UNAVAILABLE, "The incident backend is unreachable.") from exc
+
+        if response.status_code == 200:
+            try:
+                return response.json()
+            except ValueError as exc:
+                raise ApiError(
+                    503, SERVICE_UNAVAILABLE, "The incident backend returned invalid data."
+                ) from exc
+
+        if response.status_code == 401:
+            raise ApiError(401, AUTH_REQUIRED, "The incident backend rejected the caller token.")
+        if response.status_code == 403:
+            body = response.text.strip()
+            raise ApiError(403, ACCESS_DENIED, body or "The incident backend denied access.")
         if response.status_code == 404:
-            raise ApiError(404, INCIDENT_NOT_FOUND, "Incident was not found.")
+            raise ApiError(404, INCIDENT_NOT_FOUND, "The referenced record was not found.")
         if response.status_code == 429:
             raise ApiError(
-                503,
-                SERVICE_UNAVAILABLE,
+                429,
+                RATE_LIMITED,
                 "The incident backend is rate limiting requests.",
                 headers={"Retry-After": response.headers.get("retry-after", "5")},
             )
+        if response.status_code == 530:
+            # Typed reducer/procedure error: "<CODE>: <detail>"
+            text = response.text.strip()
+            code, detail = _parse_530(text)
+            if code == "INCIDENT_NOT_FOUND":
+                raise ApiError(404, INCIDENT_NOT_FOUND, detail)
+            if code == "ACCESS_DENIED":
+                raise ApiError(403, ACCESS_DENIED, detail)
+            if code == "RATE_LIMITED":
+                raise ApiError(429, RATE_LIMITED, detail)
+            if code == "VALIDATION_FAILED":
+                raise ApiError(422, VALIDATION_FAILED, detail)
+            if code == "INVALID_TRANSITION":
+                raise ApiError(409, "INVALID_TRANSITION", detail)
+            if code == "VERSION_CONFLICT":
+                raise ApiError(409, "VERSION_CONFLICT", detail)
+            raise ApiError(503, SERVICE_UNAVAILABLE, f"{code}: {detail}")
         if response.status_code >= 500:
             raise ApiError(503, SERVICE_UNAVAILABLE, "The incident backend is unavailable.")
-        if response.status_code >= 400:
-            raise ApiError(503, SERVICE_UNAVAILABLE, "The incident backend rejected the request.")
-        try:
-            return response.json()
-        except ValueError as exc:
-            raise ApiError(503, SERVICE_UNAVAILABLE, "The incident backend returned invalid data.") from exc
+        raise ApiError(503, SERVICE_UNAVAILABLE, f"The incident backend rejected the request (HTTP {response.status_code}).")
 
-    async def _get(self, path: str) -> Any:
-        try:
-            response = await self._client.get(path, headers=self._headers())
-        except httpx.HTTPError as exc:
-            raise ApiError(503, SERVICE_UNAVAILABLE, "The incident backend is unreachable.") from exc
-        return await self._json(response)
+    # ------------------------------------------------------------------
+    # User-token calls
+    # ------------------------------------------------------------------
 
-    async def authorize_incident(
-        self, principal: Principal, incident_id: str, action: str
-    ) -> AuthorizationDecision:
-        body = {
-            "subject": principal.subject,
-            "organization_id": principal.organization_id,
-            "incident_id": incident_id,
-            "action": action,
-        }
-        try:
-            response = await self._client.post(
-                "/internal/v1/authorize", json=body, headers=self._headers()
-            )
-        except httpx.HTTPError as exc:
-            raise ApiError(503, SERVICE_UNAVAILABLE, "The incident backend is unreachable.") from exc
-        data = await self._json(response)
-        return AuthorizationDecision.model_validate(data)
-
-    async def get_incident(self, incident_id: str) -> IncidentContext:
-        data = await self._get(f"/internal/v1/incidents/{quote(incident_id, safe='')}")
-        return IncidentContext.model_validate(data)
-
-    async def get_assets(self, incident_id: str) -> list[AssetContext]:
-        data = await self._get(f"/internal/v1/incidents/{quote(incident_id, safe='')}/assets")
-        return [AssetContext.model_validate(item) for item in data]
-
-    async def get_dependencies(self, incident_id: str) -> DependencyView:
-        data = await self._get(
-            f"/internal/v1/incidents/{quote(incident_id, safe='')}/dependencies"
-        )
-        return DependencyView(
-            dependencies=[ServiceDependencyContext.model_validate(i) for i in data.get("dependencies", [])],
-            services=[ServiceContext.model_validate(i) for i in data.get("services", [])],
-            impacts=[OperationalImpactContext.model_validate(i) for i in data.get("impacts", [])],
-            data_scopes=[DataScopeContext.model_validate(i) for i in data.get("data_scopes", [])],
+    async def verify_agent_run_access(self, user_token: str, run_id: str) -> RunAccess:
+        data = await self._post_json("verify_agent_run_access", [run_id], user_token=user_token)
+        if not isinstance(data, list) or len(data) != 7:
+            raise ApiError(503, SERVICE_UNAVAILABLE, "The incident backend returned malformed run access.")
+        authorized, is_requester, role, run_id, incident_id, organization_id, status = data
+        return RunAccess(
+            authorized=bool(authorized),
+            is_requester=bool(is_requester),
+            role=str(role) if role else None,
+            run_id=str(run_id),
+            incident_id=str(incident_id),
+            organization_id=str(organization_id),
+            status=str(status),
         )
 
-    async def get_open_tasks(self, incident_id: str) -> list[TaskContext]:
-        data = await self._get(
-            f"/internal/v1/incidents/{quote(incident_id, safe='')}/tasks?status=open"
-        )
-        return [TaskContext.model_validate(item) for item in data]
+    # ------------------------------------------------------------------
+    # Service-token calls
+    # ------------------------------------------------------------------
 
-    async def get_evidence_summaries(self, incident_id: str) -> list[EvidenceSummary]:
-        data = await self._get(
-            f"/internal/v1/incidents/{quote(incident_id, safe='')}/evidence/summaries"
+    async def agent_claim_run(
+        self, run_id: str, model_identifier: str, inference_mode: str
+    ) -> None:
+        await self._post_json(
+            "agent_claim_run",
+            [run_id, model_identifier, inference_mode],
         )
-        return [EvidenceSummary.model_validate(item) for item in data]
 
-    async def submit_recommendation(
+    async def _decode_result(self, data: Any, tool_name: str) -> Any:
+        """Decode a [tag, value] result envelope from an agent_get_* procedure.
+
+        tag 0 => success value; tag 1 => typed denial (transaction rolled back).
+        """
+        if not isinstance(data, list) or len(data) != 2:
+            raise ApiError(503, SERVICE_UNAVAILABLE, f"The incident backend returned a malformed result for {tool_name}.")
+        tag, payload = data
+        if tag == 0:
+            return payload
+        if tag == 1:
+            text = str(payload)
+            code, detail = _parse_530(text)
+            if code == "ACCESS_DENIED":
+                raise ApiError(403, ACCESS_DENIED, detail)
+            if code == "NOT_FOUND":
+                raise ApiError(404, INCIDENT_NOT_FOUND, detail)
+            if code == "RATE_LIMITED":
+                raise ApiError(429, RATE_LIMITED, detail)
+            raise ApiError(503, SERVICE_UNAVAILABLE, f"{tool_name}: {code}: {detail}")
+        raise ApiError(503, SERVICE_UNAVAILABLE, f"The incident backend returned an unknown result tag for {tool_name}.")
+
+    async def agent_get_incident(self, run_id: str) -> AgentIncident:
+        data = await self._post_json("agent_get_incident", [run_id])
+        value = await self._decode_result(data, "agent_get_incident")
+        return AgentIncident(**value)
+
+    async def agent_get_assets(self, run_id: str) -> list[AgentAsset]:
+        data = await self._post_json("agent_get_assets", [run_id])
+        value = await self._decode_result(data, "agent_get_assets")
+        return [AgentAsset(**item) for item in value]
+
+    async def agent_get_dependencies(self, run_id: str) -> AgentDependencyGraph:
+        data = await self._post_json("agent_get_dependencies", [run_id])
+        value = await self._decode_result(data, "agent_get_dependencies")
+        return AgentDependencyGraph(
+            services=[AgentService(**s) for s in value.get("services", [])],
+            dependencies=[AgentDependency(**d) for d in value.get("dependencies", [])],
+            impacts=[AgentImpact(**i) for i in value.get("impacts", [])],
+        )
+
+    async def agent_get_open_tasks(self, run_id: str) -> list[AgentTask]:
+        data = await self._post_json("agent_get_open_tasks", [run_id])
+        value = await self._decode_result(data, "agent_get_open_tasks")
+        return [AgentTask(**item) for item in value]
+
+    async def agent_get_evidence_summaries(self, run_id: str) -> list[AgentEvidence]:
+        data = await self._post_json("agent_get_evidence_summaries", [run_id])
+        value = await self._decode_result(data, "agent_get_evidence_summaries")
+        return [AgentEvidence(**item) for item in value]
+
+    async def agent_submit_recommendation(
         self,
         *,
-        recommendation: Recommendation,
-        requested_by: str,
-        idempotency_key: str,
+        run_id: str,
+        client_key: str,
+        title: str,
+        description: str,
+        priority: str,
+        rationale: str,
+        evidence_ids: list[str],
+        uncertainties: list[str],
     ) -> str:
-        assert_pending_only(recommendation)
-        body = {
-            "run_id": recommendation.run_id,
-            "recommendation_id": recommendation.recommendation_id,
-            "incident_id": recommendation.incident_id,
-            "organization_id": recommendation.organization_id,
-            "requested_by": requested_by,
-            "approval_status": "PENDING_HUMAN_APPROVAL",
-            "idempotency_key": idempotency_key,
-            "proposal": recommendation.model_dump(mode="json"),
-        }
-        path = (
-            f"/internal/v1/incidents/{quote(recommendation.incident_id, safe='')}"
-            "/recommendations"
+        data = await self._post_json(
+            "agent_submit_recommendation",
+            [run_id, client_key, title, description, priority, rationale, evidence_ids, uncertainties],
         )
-        try:
-            response = await self._client.post(path, json=body, headers=self._headers())
-        except httpx.HTTPError as exc:
-            raise ApiError(503, SERVICE_UNAVAILABLE, "The incident backend is unreachable.") from exc
-        data = await self._json(response)
-        if not isinstance(data, dict):
-            raise ApiError(503, SERVICE_UNAVAILABLE, "The incident backend returned invalid data.")
-        if data.get("approval_status") not in (None, "PENDING_HUMAN_APPROVAL"):
-            raise ApiError(
-                503,
-                SERVICE_UNAVAILABLE,
-                "The incident backend violated the proposal-only contract.",
-            )
-        reference = data.get("reference") or data.get("id")
-        if not isinstance(reference, str) or not reference:
-            raise ApiError(503, SERVICE_UNAVAILABLE, "The incident backend returned no reference.")
-        return reference[:160]
+        # Reducer returns HTTP 200 with empty body on success. The recommendation id is
+        # not echoed by the reducer; the caller can read my_recommendations to find it.
+        if data is not None and isinstance(data, str):
+            return data
+        return run_id
+
+    async def agent_complete_run(
+        self,
+        *,
+        run_id: str,
+        status: str,
+        error_category: str,
+        summary: str,
+    ) -> None:
+        await self._post_json(
+            "agent_complete_run",
+            [run_id, status, error_category, summary],
+        )
 
     async def aclose(self) -> None:
         await self._client.aclose()
 
 
-def make_backend(settings: Settings, *, state: dict | None = None) -> BackendClient:
-    if settings.backend_mode == "http":
-        return HttpBackendClient(settings)
-    return MemoryBackendClient(
-        state_path=settings.resolved_simulator_state_path(),
-        state=state,
-    )
+def _parse_530(text: str) -> tuple[str, str]:
+    """Parse a typed 530 error body of the form "<CODE>: <detail>."""
+    parts = text.split(":", 1)
+    if len(parts) == 2:
+        return parts[0].strip(), parts[1].strip()
+    return "UNKNOWN", text
 
 
-def assert_pending_only(recommendation: Recommendation) -> None:
+class BackendClient:
+    """Protocol for incident/agent backends (structural; not an ABC)."""
+
+    mode: str
+    contract_version: str
+
+    async def ready(self) -> bool: ...
+    async def verify_agent_run_access(
+        self, user_token: str, run_id: str
+    ) -> RunAccess: ...
+    async def agent_claim_run(
+        self, run_id: str, model_identifier: str, inference_mode: str
+    ) -> None: ...
+    async def agent_get_incident(self, run_id: str) -> AgentIncident: ...
+    async def agent_get_assets(self, run_id: str) -> list[AgentAsset]: ...
+    async def agent_get_dependencies(self, run_id: str) -> AgentDependencyGraph: ...
+    async def agent_get_open_tasks(self, run_id: str) -> list[AgentTask]: ...
+    async def agent_get_evidence_summaries(self, run_id: str) -> list[AgentEvidence]: ...
+    async def agent_submit_recommendation(
+        self,
+        *,
+        run_id: str,
+        client_key: str,
+        title: str,
+        description: str,
+        priority: str,
+        rationale: str,
+        evidence_ids: list[str],
+        uncertainties: list[str],
+    ) -> str: ...
+    async def agent_complete_run(
+        self,
+        *,
+        run_id: str,
+        status: str,
+        error_category: str,
+        summary: str,
+    ) -> None: ...
+    async def aclose(self) -> None: ...
+
+
+def make_backend(settings: Settings) -> BackendClient:
+    return SpacetimeDBBackendClient(settings)
+
+
+def assert_pending_only(approval_status: str) -> None:
     """Final guard: never let a submission carry an approval decision."""
-
-    if recommendation.approval_status != "PENDING_HUMAN_APPROVAL":
+    if approval_status != "PENDING":
         raise ApiError(500, SERVICE_UNAVAILABLE, "Internal approval-state violation.")
-    for task in recommendation.proposed_tasks:
-        if task.requires_human_approval is not True:
-            raise ApiError(500, SERVICE_UNAVAILABLE, "Internal proposal-approval violation.")

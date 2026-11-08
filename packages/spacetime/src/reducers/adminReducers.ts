@@ -8,8 +8,10 @@ import {
   activeServicePrincipal,
   isAnyActiveServicePrincipal,
   isPlatformAdmin,
+  isUserDisabled,
   requireOrgCapability,
 } from '../security/membership';
+import { evaluateTokenPolicy } from '../security/tokenPolicy';
 import { oneOf, text } from '../security/validation';
 import { DATA_CLASSES, ROLES } from '../../../shared/src/enums';
 import { LIMITS } from '../../../shared/src/limits';
@@ -25,15 +27,24 @@ export const init = spacetimedb.init(ctx => {
 });
 
 /**
- * Optional issuer allowlist: once any trusted_issuer row exists, connections whose JWT issuer
- * is not listed are rejected. Empty table = any issuer accepted by the SpacetimeDB host (dev).
+ * Issuer policy. While trusted_issuer is empty the module is in OPEN (development) mode and accepts
+ * any token the host accepts. Once a platform admin adds an issuer, every WebSocket connection and
+ * HTTP call must present a short-lived token from a trusted issuer and audience, except enrolled
+ * machine identities (platform admins, active service principals). See tokenPolicy.ts.
  */
 export const onConnect = spacetimedb.clientConnected(ctx => {
-  if (ctx.db.trustedIssuer.count() === 0n) return;
-  const issuer = ctx.senderAuth.jwt?.issuer;
-  if (!issuer || !ctx.db.trustedIssuer.issuer.find(issuer)) {
-    fail('AUTH_REQUIRED', 'token issuer is not trusted');
-  }
+  const jwt = ctx.senderAuth.jwt;
+  const issuer = jwt?.issuer ?? '';
+  const decision = evaluateTokenPolicy({
+    enforced: ctx.db.trustedIssuer.count() > 0n,
+    isEnrolledMachineIdentity: isPlatformAdmin(ctx.db, ctx.sender) || isAnyActiveServicePrincipal(ctx.db, ctx.sender),
+    claims: jwt ? { issuer, audience: jwt.audience, exp: jwt.fullPayload.exp, iat: jwt.fullPayload.iat } : null,
+    issuerTrusted: issuer !== '' && ctx.db.trustedIssuer.issuer.find(issuer) != null,
+    allowedAudiences: [...ctx.db.trustedAudience.issuer.filter(issuer)].map(a => a.audience),
+    nowSeconds: Number(ctx.timestamp.microsSinceUnixEpoch / 1_000_000n),
+  });
+  if (!decision.ok) fail('AUTH_REQUIRED', decision.reason);
+  if (isUserDisabled(ctx.db, ctx.sender)) fail('AUTH_REQUIRED', 'account disabled');
 });
 
 export const add_trusted_issuer = spacetimedb.reducer({ issuer: t.string() }, (ctx, { issuer }) => {
@@ -47,6 +58,22 @@ export const add_trusted_issuer = spacetimedb.reducer({ issuer: t.string() }, (c
 export const remove_trusted_issuer = spacetimedb.reducer({ issuer: t.string() }, (ctx, { issuer }) => {
   if (!isPlatformAdmin(ctx.db, ctx.sender)) fail('ACCESS_DENIED', 'platform admin only');
   ctx.db.trustedIssuer.issuer.delete(issuer);
+  for (const a of [...ctx.db.trustedAudience.issuer.filter(issuer)]) ctx.db.trustedAudience.key.delete(a.key);
+});
+
+export const add_trusted_audience = spacetimedb.reducer({ issuer: t.string(), audience: t.string() }, (ctx, { issuer, audience }) => {
+  if (!isPlatformAdmin(ctx.db, ctx.sender)) fail('ACCESS_DENIED', 'platform admin only');
+  text('audience', audience, LIMITS.EVIDENCE_SOURCE);
+  if (!ctx.db.trustedIssuer.issuer.find(issuer)) fail('NOT_FOUND', 'add the issuer with add_trusted_issuer first');
+  const key = `${issuer}\n${audience}`;
+  if (!ctx.db.trustedAudience.key.find(key)) {
+    ctx.db.trustedAudience.insert({ key, issuer, audience, addedBy: ctx.sender, addedAt: ctx.timestamp });
+  }
+});
+
+export const remove_trusted_audience = spacetimedb.reducer({ issuer: t.string(), audience: t.string() }, (ctx, { issuer, audience }) => {
+  if (!isPlatformAdmin(ctx.db, ctx.sender)) fail('ACCESS_DENIED', 'platform admin only');
+  ctx.db.trustedAudience.key.delete(`${issuer}\n${audience}`);
 });
 
 export const create_organization = spacetimedb.reducer(

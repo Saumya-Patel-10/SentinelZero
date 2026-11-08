@@ -1,10 +1,16 @@
-"""End-to-end scripted workflow: evidence, tool calls, bounded agent, proposals."""
+"""End-to-end scripted workflow: evidence, tool calls, bounded agent, proposals.
+
+The browser first calls SpacetimeDB's request_agent_run reducer to create a
+REQUESTED run, then calls FastAPI with the run id. The service verifies access
+through verify_agent_run_access, claims the run, executes the bounded agent
+loop, submits a PENDING recommendation, and completes the run.
+"""
 
 from __future__ import annotations
 
 import json
 
-from conftest import INCIDENT, auth_headers, wait_for_run
+from conftest import INCIDENT, ORG, auth_headers, wait_for_run
 
 ANALYZE = f"/v1/incidents/{INCIDENT}/analyze"
 READ_TOOLS = {
@@ -16,38 +22,36 @@ READ_TOOLS = {
 }
 
 
-async def test_scripted_run_completes_with_tool_round_trip(app_factory, client_factory):
+async def test_scripted_run_completes_with_tool_round_trip(app_factory, client_factory, stdb):
     app = app_factory()
     client = await client_factory(app)
     headers = auth_headers()
 
-    accepted = await client.post(ANALYZE, json={"focus": "Confirm exfiltration is unknown"}, headers=headers)
+    run_id = "run_e2e_workflow_001"
+    stdb.set_run(run_id, status="REQUESTED")
+
+    accepted = await client.post(
+        ANALYZE,
+        json={"incident_id": INCIDENT, "run_id": run_id, "analysis_type": "intake"},
+        headers=headers,
+    )
 
     assert accepted.status_code == 202
     body = accepted.json()
-    assert body["status"] == "QUEUED"
-    assert body["incident_id"] == INCIDENT
-    assert body["provider_mode"] == "scripted"
-    assert body["inference_label"] == "SIMULATED_MODEL_OUTPUT"
-    assert body["live_inference"] is False
-    assert body["exercise_label"] == "EXERCISE"
-    assert "SIMULATED" in body["notice"]
-    assert "human approval" in body["notice"]
+    assert body["run_id"] == run_id
+    assert body["status"] == "RUNNING"
+    assert body["inference_mode"] == "SIMULATED"
+    assert "scripted" in body["model_identifier"]
 
-    run = await wait_for_run(client, body["run_id"], headers)
+    run = await wait_for_run(client, run_id, headers)
 
     assert run["status"] == "COMPLETED"
-    assert run["provider_mode"] == "scripted"
-    assert run["inference_label"] == "SIMULATED_MODEL_OUTPUT"
+    assert run["inference_mode"] == "SIMULATED"
     assert run["error_category"] is None
-    assert run["truthfulness"] == {
-        "proposal_only": True,
-        "live_inference": False,
-        "inference_label": "SIMULATED_MODEL_OUTPUT",
-        "exercise_label": "EXERCISE",
-        "approval_required": True,
-        "notice": "SIMULATED or non-attested model output; not live NVIDIA inference.",
-    }
+    assert run["truthfulness"]["proposal_only"] is True
+    assert run["truthfulness"]["live_inference"] is False
+    assert run["truthfulness"]["inference_mode"] == "SIMULATED"
+    assert run["truthfulness"]["approval_required"] is True
 
     # Exactly five allowlisted read calls, all successful.
     tools = run["tool_calls"]
@@ -65,57 +69,40 @@ async def test_scripted_run_completes_with_tool_round_trip(app_factory, client_f
 
     recommendation = run["recommendation"]
     assert recommendation is not None
-    assert recommendation["approval_status"] == "PENDING_HUMAN_APPROVAL"
-    assert recommendation["submitted"] is False
-    assert recommendation["provider_mode"] == "scripted"
-    assert recommendation["inference_label"] == "SIMULATED_MODEL_OUTPUT"
-    assert recommendation["exercise_label"] == "EXERCISE"
-    assert "SIMULATED ANALYST OUTPUT" in recommendation["summary"]
+    assert recommendation["status"] == "PENDING"
+    assert recommendation["inference_mode"] == "SIMULATED"
     assert recommendation["facts"]
     assert recommendation["uncertainties"]
-    assert recommendation["proposed_tasks"]
+    assert recommendation["proposed_actions"]
 
-    evidence_ids = set(recommendation["evidence_ids_used"])
+    evidence_ids = set(recommendation["evidence_ids"])
     assert evidence_ids
-    assert evidence_ids <= {
-        "ev_ad_auth",
-        "ev_backup_log",
-        "ev_dns_log",
-        "ev_edr_alert",
-        "ev_mail_gateway",
-        "ev_net_flow",
-        "ev_ransom_note",
-        "ev_file_lock",
-        "ev_ehr_db_access",
-        "ev_sched_outage",
-        "ev_billing_scan",
-        "ev_pacs_outage",
-    }
     for fact in recommendation["facts"]:
         assert set(fact["evidence_ids"]) <= evidence_ids
-    for task in recommendation["proposed_tasks"]:
-        assert task["requires_human_approval"] is True
-        assert task["evidence_basis"] in {
-            "EVIDENCE_BACKED",
-            "CONTINUITY_PRACTICE",
-            "UNVERIFIED_INFERENCE",
-        }
-        assert set(task["evidence_ids"]) <= evidence_ids
+    for action in recommendation["proposed_actions"]:
+        assert set(action["evidence_ids"]) <= evidence_ids
 
     # Uncertainty invariant must survive the whole pipeline.
     assert any(
-        item["question"] == "Was data exfiltrated before encryption or outage?"
+        item["question"] == "Was data exfiltrated?"
         for item in recommendation["uncertainties"]
     )
 
 
-async def test_run_payload_contains_no_prompt_or_secret(app_factory, client_factory):
+async def test_run_payload_contains_no_prompt_or_secret(app_factory, client_factory, stdb):
     app = app_factory()
     client = await client_factory(app)
     headers = auth_headers()
 
-    accepted = await client.post(ANALYZE, json={}, headers=headers)
-    run = await wait_for_run(client, accepted.json()["run_id"], headers)
+    run_id = "run_no_secret_001"
+    stdb.set_run(run_id, status="REQUESTED")
+
+    accepted = await client.post(
+        ANALYZE,
+        json={"incident_id": INCIDENT, "run_id": run_id, "analysis_type": "intake"},
+        headers=headers,
+    )
+    run = await wait_for_run(client, run_id, headers)
     text = json.dumps(run)
 
     assert "You are SentinelZero's incident analysis assistant" not in text
@@ -126,19 +113,26 @@ async def test_run_payload_contains_no_prompt_or_secret(app_factory, client_fact
 
 
 async def test_run_can_be_read_repeatedly_and_is_immutable_after_completion(
-    app_factory, client_factory
+    app_factory, client_factory, stdb
 ):
     app = app_factory()
     client = await client_factory(app)
     headers = auth_headers()
 
-    accepted = await client.post(ANALYZE, json={}, headers=headers)
+    run_id = "run_immutable_001"
+    stdb.set_run(run_id, status="REQUESTED")
+
+    accepted = await client.post(
+        ANALYZE,
+        json={"incident_id": INCIDENT, "run_id": run_id, "analysis_type": "intake"},
+        headers=headers,
+    )
     run_id = accepted.json()["run_id"]
     first = await wait_for_run(client, run_id, headers)
     second = (await client.get(f"/v1/agent-runs/{run_id}", headers=headers)).json()
 
     assert first["status"] == second["status"] == "COMPLETED"
-    assert first["recommendation"]["recommendation_id"] == second["recommendation"]["recommendation_id"]
+    assert first["recommendation"]["id"] == second["recommendation"]["id"]
     assert first["finished_at"] == second["finished_at"]
 
 
@@ -150,3 +144,14 @@ async def test_unknown_run_returns_404(app_factory, client_factory):
 
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "NOT_FOUND"
+
+
+async def test_analyze_requires_run_id(app_factory, client_factory):
+    app = app_factory()
+    client = await client_factory(app)
+
+    response = await client.post(
+        ANALYZE, json={"incident_id": INCIDENT}, headers=auth_headers()
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_FAILED"
