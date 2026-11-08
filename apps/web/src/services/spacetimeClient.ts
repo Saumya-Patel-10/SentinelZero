@@ -32,6 +32,7 @@ import {
   MOCK_EVIDENCE,
   MOCK_USERS,
 } from '../fixtures/mockData';
+import { CAPABILITIES } from '@shared/permissions';
 
 export type ConnectionStatus = 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'RECONNECTING' | 'ERROR';
 
@@ -119,7 +120,7 @@ class SpacetimeClientService {
   /**
    * Helper: verify privilege before mutation
    */
-  private verifyRole(allowedRoles: Role[], actionName: string) {
+  private verifyRole(allowedRoles: readonly Role[], actionName: string) {
     if (!allowedRoles.includes(this.state.currentUser.role)) {
       const err = new Error(`ACCESS_DENIED: Role ${this.state.currentUser.role} not authorized for ${actionName}`);
       err.name = 'ACCESS_DENIED';
@@ -169,12 +170,12 @@ class SpacetimeClientService {
 
     // Reopen from CLOSED strictly requires COMMANDER role
     if (this.state.incident.status === 'CLOSED' && newStatus === 'TRIAGING') {
-      this.verifyRole(['COMMANDER', 'OWNER'], 'reopen_incident');
+      this.verifyRole(CAPABILITIES.REOPEN_INCIDENT, 'reopen_incident');
       if (!explanation || explanation.trim().length < 10) {
         throw new Error('VALIDATION_FAILED: Re-opening a closed incident requires a detailed justification (min 10 chars).');
       }
     } else {
-      this.verifyRole(['OWNER', 'COMMANDER', 'ANALYST'], 'transition_incident_status');
+      this.verifyRole(CAPABILITIES.TRANSITION_INCIDENT, 'transition_incident_status');
     }
 
     const currentStatus = this.state.incident.status;
@@ -237,7 +238,7 @@ class SpacetimeClientService {
     requires_approval?: boolean;
     is_ai_proposed?: boolean;
   }): Promise<Task> {
-    this.verifyRole(['OWNER', 'COMMANDER', 'ANALYST', 'RESPONDER'], 'create_task');
+    this.verifyRole(CAPABILITIES.CREATE_TASK, 'create_task');
 
     const newTask: Task = {
       id: `tsk_${Date.now()}`,
@@ -267,7 +268,7 @@ class SpacetimeClientService {
    * Reducer: approve_task (Commander or Owner only)
    */
   public async approveTask(taskId: string): Promise<Task> {
-    this.verifyRole(['COMMANDER', 'OWNER'], 'approve_task');
+    this.verifyRole(CAPABILITIES.APPROVE_TASK, 'approve_task');
 
     const taskIdx = this.state.tasks.findIndex((t) => t.id === taskId);
     if (taskIdx === -1) throw new Error('TASK_NOT_FOUND');
@@ -299,7 +300,7 @@ class SpacetimeClientService {
    * Reducer: reject_task (Commander or Owner only)
    */
   public async rejectTask(taskId: string, reason?: string): Promise<Task> {
-    this.verifyRole(['COMMANDER', 'OWNER'], 'reject_task');
+    this.verifyRole(CAPABILITIES.APPROVE_TASK, 'reject_task');
 
     const taskIdx = this.state.tasks.findIndex((t) => t.id === taskId);
     if (taskIdx === -1) throw new Error('TASK_NOT_FOUND');
