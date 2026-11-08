@@ -141,6 +141,7 @@ def test_tool_allowlist_is_exact_and_forbidden_names_absent():
         "get_open_tasks",
         "get_evidence_summaries",
         "propose_task",
+        "query_threat_intelligence",
     }
     assert set(TOOL_SPECS) == expected
     forbidden = {"shell", "exec", "delete", "isolate", "approve", "execute", "assign"}
