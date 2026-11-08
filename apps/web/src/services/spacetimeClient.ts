@@ -46,6 +46,7 @@ export interface SpacetimeState {
   messages: Message[];
   auditLogs: AuditEvent[];
   evidence: EvidenceReference[];
+  users: UserProfile[];
   currentUser: UserProfile;
   connectionStatus: ConnectionStatus;
   isLiveConnection: boolean;
@@ -72,7 +73,8 @@ class SpacetimeClientService {
       messages: [...MOCK_MESSAGES],
       auditLogs: [...MOCK_AUDIT_LOGS],
       evidence: [...MOCK_EVIDENCE],
-      currentUser: { ...MOCK_USERS[0] }, // Default Commander
+      users: [...MOCK_USERS],
+      currentUser: { ...MOCK_USERS[0] }, // Default Commander (Saumya)
       connectionStatus: 'CONNECTED',
       isLiveConnection: false, // Truthful: marks whether live SpacetimeDB WS is active
       lastSyncTime: new Date().toISOString(),
@@ -98,10 +100,12 @@ class SpacetimeClientService {
       assets: [...this.state.assets],
       dependencies: [...this.state.dependencies],
       impacts: [...this.state.impacts],
+      dataScopes: [...this.state.dataScopes],
       tasks: [...this.state.tasks],
       messages: [...this.state.messages],
       auditLogs: [...this.state.auditLogs],
       evidence: [...this.state.evidence],
+      users: [...this.state.users],
     };
   }
 
@@ -371,6 +375,122 @@ class SpacetimeClientService {
     this.state.messages.push(newMsg);
     this.notify();
     return newMsg;
+  }
+
+  /**
+   * Reducer: invite_member (Winstead Req #2: Access Control)
+   */
+  public async inviteMember(payload: { displayName: string; email: string; role: Role }): Promise<UserProfile> {
+    if (this.state.currentUser.role !== 'COMMANDER') {
+      throw new Error('ACCESS_DENIED: Only Commander / Admin may invite new individuals to the platform');
+    }
+    const cleanName = payload.displayName.trim();
+    const cleanEmail = payload.email.trim();
+    if (!cleanName || !cleanEmail) {
+      throw new Error('VALIDATION_FAILED: Display name and out-of-band email are required');
+    }
+
+    const newUser: UserProfile = {
+      id: `usr_${Date.now()}`,
+      auth_identity: `identity_${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${Math.floor(Math.random() * 1000)}`,
+      display_name: cleanName,
+      email: cleanEmail,
+      role: payload.role,
+    };
+
+    this.state.users.push(newUser);
+    this.appendAuditLog('MEMBER_INVITED', newUser.id, {
+      display_name: newUser.display_name,
+      email: newUser.email,
+      role: newUser.role,
+      invited_by: this.state.currentUser.display_name,
+    });
+    this.notify();
+    return newUser;
+  }
+
+  /**
+   * Reducer: update_member_role
+   */
+  public async updateUserRole(userId: string, newRole: Role): Promise<UserProfile> {
+    if (this.state.currentUser.role !== 'COMMANDER') {
+      throw new Error('ACCESS_DENIED: Only Commander / Admin may modify roles');
+    }
+    const user = this.state.users.find((u) => u.id === userId);
+    if (!user) throw new Error('NOT_FOUND: User does not exist');
+    
+    user.role = newRole;
+    if (this.state.currentUser.id === userId) {
+      this.state.currentUser.role = newRole;
+    }
+    this.appendAuditLog('ROLE_UPDATED', userId, {
+      member_name: user.display_name,
+      new_role: newRole,
+      updated_by: this.state.currentUser.display_name,
+    });
+    this.notify();
+    return user;
+  }
+
+  /**
+   * Reducer: revoke_member
+   */
+  public async removeMember(userId: string): Promise<void> {
+    if (this.state.currentUser.role !== 'COMMANDER') {
+      throw new Error('ACCESS_DENIED: Only Commander / Admin may revoke access');
+    }
+    const idx = this.state.users.findIndex((u) => u.id === userId);
+    if (idx === -1) throw new Error('NOT_FOUND: User does not exist');
+    const removed = this.state.users[idx];
+    this.state.users.splice(idx, 1);
+    this.appendAuditLog('MEMBER_REVOKED', userId, {
+      member_name: removed.display_name,
+      revoked_by: this.state.currentUser.display_name,
+    });
+    this.notify();
+  }
+
+  /**
+   * Reducer: update_data_scope (Winstead Req #4: Scope Definitions)
+   */
+  public async updateDataScope(scopeId: string, updates: Partial<DataScope>): Promise<DataScope> {
+    if (this.state.currentUser.role === 'OBSERVER') {
+      throw new Error('ACCESS_DENIED: Observer accounts cannot alter data scope definitions');
+    }
+    const scope = this.state.dataScopes.find((s) => s.id === scopeId);
+    if (!scope) throw new Error('NOT_FOUND: Data scope entry not found');
+
+    Object.assign(scope, updates);
+    this.appendAuditLog('DATA_SCOPE_UPDATED', scopeId, {
+      ...updates,
+      updated_by: this.state.currentUser.display_name,
+    });
+    this.notify();
+    return scope;
+  }
+
+  /**
+   * Reducer: create_data_scope (Winstead Req #4)
+   */
+  public async createDataScope(payload: Omit<DataScope, 'id' | 'organization_id' | 'incident_id'>): Promise<DataScope> {
+    if (this.state.currentUser.role === 'OBSERVER') {
+      throw new Error('ACCESS_DENIED: Observer accounts cannot define new data scopes');
+    }
+    const newScope: DataScope = {
+      id: `dsc_${Date.now()}`,
+      organization_id: this.state.incident?.organization_id || 'org_01',
+      incident_id: this.state.incident?.id || 'inc_01',
+      ...payload,
+    };
+    this.state.dataScopes.push(newScope);
+    this.appendAuditLog('DATA_SCOPE_CREATED', newScope.id, {
+      data_category: newScope.data_category,
+      asset_id: newScope.asset_id,
+      estimated_records: newScope.estimated_records,
+      created_by: this.state.currentUser.display_name,
+    });
+    this.notify();
+    return newScope;
   }
 
   /**
