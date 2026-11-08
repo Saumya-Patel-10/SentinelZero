@@ -1,6 +1,7 @@
 import { SenderError } from 'spacetimedb/server';
 import { fail, newId, type Ctx } from '../security/context';
 import { activeServicePrincipal, canInOrg } from '../security/membership';
+import { consumeRateLimit } from '../security/rateLimit';
 import { LIMITS } from '../../../shared/src/limits';
 
 type RunRow = NonNullable<ReturnType<Ctx['db']['agentRun']['id']['find']>>;
@@ -29,6 +30,7 @@ export function requireServiceRun(ctx: Ctx, runId: string): RunRow {
 const clip = (s: string) => (s.length > LIMITS.TOOL_SUMMARY.max ? s.slice(0, LIMITS.TOOL_SUMMARY.max) : s);
 
 export function recordToolCall(ctx: Ctx, run: RunRow, toolName: string, inputSummary: string, outputSummary: string, status: 'OK' | 'ERROR'): void {
+  consumeRateLimit(ctx, 'agent_tool_call');
   ctx.db.agentToolCall.insert({
     id: newId(ctx),
     organizationId: run.organizationId,
