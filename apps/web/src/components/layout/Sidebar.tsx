@@ -2,19 +2,29 @@ import React from 'react';
 import { useUIStore, ActiveView } from '../../stores/uiStore';
 import { useTasks } from '../../hooks/useTasks';
 import { useConnection } from '../../hooks/useConnection';
-import { Activity, Bot, CheckSquare, FileText, LayoutDashboard, MessageSquare, Network } from 'lucide-react';
+import { useIncidents } from '../../hooks/useIncidents';
+import { Activity, Bot, CheckSquare, Database, FileText, LayoutDashboard, MessageSquare, Network, Users } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
   const currentView = useUIStore((s) => s.currentView);
   const setCurrentView = useUIStore((s) => s.setCurrentView);
+  const setAIPanelOpen = useUIStore((s) => s.setAIPanelOpen);
   const { awaitingApproval } = useTasks();
   const { messages } = useConnection();
+  const { dataScopes } = useIncidents();
 
-  const navItems: { view: ActiveView; label: string; icon: React.ReactNode; badge?: number; badgeColor?: string }[] = [
+  const navItems: { view: ActiveView; label: string; icon: React.ReactNode; badge?: number | string; badgeColor?: string; onClick?: () => void }[] = [
     {
       view: 'COMMAND_CENTER',
       label: 'Command Center',
       icon: <LayoutDashboard className="w-5 h-5" />,
+    },
+    {
+      view: 'DATA_SCOPES',
+      label: 'Data Scope Ledger',
+      icon: <Database className="w-5 h-5" />,
+      badge: dataScopes.length,
+      badgeColor: 'bg-cyan-950 text-cyan-400 border border-cyan-800',
     },
     {
       view: 'IMPACT_GRAPH',
@@ -36,14 +46,24 @@ export const Sidebar: React.FC = () => {
       badgeColor: 'bg-sz-bg-border text-slate-300',
     },
     {
+      view: 'TEAM_ACCESS',
+      label: 'Team & Access Control',
+      icon: <Users className="w-5 h-5" />,
+    },
+    {
       view: 'AUDIT_TIMELINE',
       label: 'Audit & Hash Chain',
       icon: <FileText className="w-5 h-5" />,
     },
     {
       view: 'AI_ASSISTANT',
-      label: 'Nemotron Copilot',
+      label: 'Nemotron',
       icon: <Bot className="w-5 h-5" />,
+      badge: 'NVIDIA',
+      badgeColor: 'bg-emerald-950 text-emerald-400 border border-emerald-700 font-mono text-[9px]',
+      onClick: () => {
+        setAIPanelOpen(true);
+      },
     },
   ];
 
@@ -55,7 +75,13 @@ export const Sidebar: React.FC = () => {
           return (
             <button
               key={item.view}
-              onClick={() => setCurrentView(item.view)}
+              onClick={() => {
+                if (item.onClick) {
+                  item.onClick();
+                } else {
+                  setCurrentView(item.view);
+                }
+              }}
               className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-md text-sm font-medium transition-all ${
                 isActive
                   ? 'bg-cyan-950/60 text-cyan-300 border border-cyan-500/40 shadow-sm'
