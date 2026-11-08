@@ -121,6 +121,12 @@ def _prior_block(outputs: dict[str, BaseModel], names: tuple[str, ...], ctx: Too
         encoded = encoded[:_MAX_PRIOR_CHARS] + "[TRUNCATED_BY_SERVICE]"
     scan = scan_untrusted_text(encoded)
     notice = ""
+    if scan.risk == "HIGH":
+        ctx.injection_categories.update(scan.categories)
+        raise AgentRunError(
+            AI_OUTPUT_INVALID,
+            "Analysis withheld because earlier sub-agent output matched a high-risk prompt-injection pattern.",
+        )
     if scan.suspected:
         ctx.injection_categories.update(scan.categories)
         notice = (
@@ -214,6 +220,11 @@ class IncidentOrchestrator:
         incident_scan = scan_untrusted_text(f"{incident.title}\n{incident.description}")
         if incident_scan.suspected:
             ctx.injection_categories.update(incident_scan.categories)
+        if incident_scan.risk == "HIGH":
+            raise AgentRunError(
+                AI_OUTPUT_INVALID,
+                "Analysis withheld because the incident text matched a high-risk prompt-injection pattern.",
+            )
         header = {
             "incident_id": incident.incident_id,
             "category": incident.category[:60],
@@ -271,8 +282,10 @@ class IncidentOrchestrator:
 
         draft = self._synthesize(triage, impact, containment, ctx)
         sitrep, _ = redact_text(communications.sitrep)
-        summary = draft.description
-        return draft, ctx, summary, sitrep[:2000]
+        summary = (
+            f"{draft.description}\n\nCommander sitrep (draft, not transmitted):\n{sitrep[:1800]}"
+        )
+        return draft, ctx, summary[:5000], sitrep[:2000]
 
     async def _run_subagent(
         self,
@@ -375,4 +388,6 @@ class IncidentOrchestrator:
             ],
         )
         draft = validate_against_evidence(draft, allowed_evidence_ids=ctx.allowed_evidence_ids)
-        return merge_tool_proposals(draft, validate_tool_proposals(ctx))
+        draft = merge_tool_proposals(draft, validate_tool_proposals(ctx))
+        ordered = sorted(draft.proposed_actions, key=lambda action: _PRIORITY_ORDER[action.priority])
+        return draft.model_copy(update={"proposed_actions": ordered})
