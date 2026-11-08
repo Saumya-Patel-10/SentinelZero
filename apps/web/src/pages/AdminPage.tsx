@@ -4,7 +4,7 @@ import { useAuth } from '../hooks/useAuth';
 import { FileText, Hash, Lock, ShieldCheck } from 'lucide-react';
 
 export const AdminPage: React.FC = () => {
-  const { auditLogs, evidence } = useConnection();
+  const { auditLogs, evidence, isLiveConnection } = useConnection();
   const { role } = useAuth();
 
   return (
@@ -12,7 +12,7 @@ export const AdminPage: React.FC = () => {
       <div>
         <h2 className="text-xl font-bold text-slate-100">Audit Trail, Cryptographic Integrity & Evidence</h2>
         <p className="text-xs text-slate-400 mt-0.5">
-          Deterministic record of all reducer transactions, state transitions, and forensic evidence references.
+          Exercise ledger in this browser. The SpacetimeDB module keeps the SHA-256 chain; this page does not verify it.
         </p>
       </div>
 
@@ -23,9 +23,9 @@ export const AdminPage: React.FC = () => {
             <Hash className="w-5 h-5 text-cyan-400" />
             <h3 className="text-sm font-semibold text-slate-100">Cryptographically Chained Reducer Ledger</h3>
           </div>
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-600/40 text-emerald-400 text-xs font-mono font-medium">
+          <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-mono font-medium ${isLiveConnection ? 'bg-emerald-950/60 border border-emerald-600/40 text-emerald-400' : 'bg-amber-950/60 border border-amber-600/40 text-amber-300'}`}>
             <ShieldCheck className="w-4 h-4" />
-            <span>HASH CHAIN VALIDATED</span>
+            <span>{isLiveConnection ? 'SERVER CHAIN CONNECTED' : 'EXERCISE LEDGER — NOT SERVER-VERIFIED'}</span>
           </div>
         </div>
 
