@@ -37,7 +37,7 @@ from app.errors import (
     ApiError,
 )
 from app.runtime import acceptance_notice
-from app.schemas import AnalysisAccepted, AnalysisRequest, RunRecord, initial_subagents
+from app.schemas import SUBAGENT_ORDER, AnalysisAccepted, AnalysisRequest, RunRecord, initial_subagents
 from app.store import RunState
 
 logger = logging.getLogger("sentinelzero.ai.routes.analyze")
