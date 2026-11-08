@@ -3,7 +3,8 @@ import spacetimedb from '../schema';
 import { fail, newId, type Ctx } from '../security/context';
 import { appendAudit } from '../security/audit';
 import { requireIncidentCapability } from '../security/membership';
-import { expectVersion, oneOf, text } from '../security/validation';
+import { consumeRateLimit } from '../security/rateLimit';
+import { expectVersion, oneOf, requireOpenIncident, text } from '../security/validation';
 import {
   ASSET_COMPROMISE,
   ASSET_TYPES,
@@ -17,10 +18,6 @@ import {
   VERIFICATION,
 } from '../../../shared/src/enums';
 import { LIMITS } from '../../../shared/src/limits';
-
-function requireOpenIncident(status: string): void {
-  if (status === 'CLOSED') fail('INVALID_TRANSITION', 'closed incidents are read-only; reopen first');
-}
 
 function requireSameIncident(ctx: Ctx, kind: 'asset' | 'service', id: string, incidentId: string): void {
   const row = kind === 'asset' ? ctx.db.asset.id.find(id) : ctx.db.service.id.find(id);
@@ -48,6 +45,7 @@ export const add_asset = spacetimedb.reducer(
   (ctx, a) => {
     const { incident } = requireIncidentCapability(ctx, a.incidentId, 'EDIT_IMPACT_GRAPH');
     requireOpenIncident(incident.status);
+    consumeRateLimit(ctx, 'incident_write');
     text('name', a.name, LIMITS.SHORT_TEXT);
     oneOf('assetType', ASSET_TYPES, a.assetType);
     oneOf('criticality', CRITICALITY, a.criticality);
@@ -97,6 +95,7 @@ export const update_asset_status = spacetimedb.reducer(
     if (!row) fail('NOT_FOUND', 'asset not found');
     const { incident } = requireIncidentCapability(ctx, row.incidentId, 'EDIT_IMPACT_GRAPH');
     requireOpenIncident(incident.status);
+    consumeRateLimit(ctx, 'incident_write');
     expectVersion('asset', row.version, a.expectedVersion);
     oneOf('compromiseStatus', ASSET_COMPROMISE, a.compromiseStatus);
     oneOf('availabilityStatus', AVAILABILITY_STATUSES, a.availabilityStatus);
@@ -141,6 +140,7 @@ export const add_service = spacetimedb.reducer(
   (ctx, a) => {
     const { incident } = requireIncidentCapability(ctx, a.incidentId, 'EDIT_IMPACT_GRAPH');
     requireOpenIncident(incident.status);
+    consumeRateLimit(ctx, 'incident_write');
     text('name', a.name, LIMITS.SHORT_TEXT);
     text('description', a.description, LIMITS.DESCRIPTION);
     oneOf('criticality', CRITICALITY, a.criticality);
@@ -185,6 +185,7 @@ export const update_service_status = spacetimedb.reducer(
     if (!row) fail('NOT_FOUND', 'service not found');
     const { incident } = requireIncidentCapability(ctx, row.incidentId, 'EDIT_IMPACT_GRAPH');
     requireOpenIncident(incident.status);
+    consumeRateLimit(ctx, 'incident_write');
     expectVersion('service', row.version, a.expectedVersion);
     oneOf('availabilityStatus', AVAILABILITY_STATUSES, a.availabilityStatus);
     oneOf('availabilityVerification', VERIFICATION, a.availabilityVerification);
@@ -220,6 +221,7 @@ export const add_service_dependency = spacetimedb.reducer(
   (ctx, a) => {
     const { incident } = requireIncidentCapability(ctx, a.incidentId, 'EDIT_IMPACT_GRAPH');
     requireOpenIncident(incident.status);
+    consumeRateLimit(ctx, 'incident_write');
     requireSameIncident(ctx, 'asset', a.sourceAssetId, incident.id);
     requireSameIncident(ctx, 'service', a.targetServiceId, incident.id);
     oneOf('dependencyType', DEPENDENCY_TYPES, a.dependencyType);
@@ -258,6 +260,7 @@ export const update_dependency_verification = spacetimedb.reducer(
     if (!row) fail('NOT_FOUND', 'dependency not found');
     const { incident } = requireIncidentCapability(ctx, row.incidentId, 'EDIT_IMPACT_GRAPH');
     requireOpenIncident(incident.status);
+    consumeRateLimit(ctx, 'incident_write');
     oneOf('verification', VERIFICATION, a.verification);
     text('reason', a.reason, LIMITS.REASON);
     ctx.db.serviceDependency.id.update({
@@ -291,6 +294,7 @@ export const add_operational_impact = spacetimedb.reducer(
   (ctx, a) => {
     const { incident } = requireIncidentCapability(ctx, a.incidentId, 'EDIT_IMPACT_GRAPH');
     requireOpenIncident(incident.status);
+    consumeRateLimit(ctx, 'incident_write');
     requireSameIncident(ctx, 'service', a.serviceId, incident.id);
     oneOf('impactType', IMPACT_TYPES, a.impactType);
     oneOf('severity', SEVERITIES, a.severity);
@@ -337,6 +341,7 @@ export const update_operational_impact = spacetimedb.reducer(
     if (!row) fail('NOT_FOUND', 'impact not found');
     const { incident } = requireIncidentCapability(ctx, row.incidentId, 'EDIT_IMPACT_GRAPH');
     requireOpenIncident(incident.status);
+    consumeRateLimit(ctx, 'incident_write');
     expectVersion('impact', row.version, a.expectedVersion);
     oneOf('severity', SEVERITIES, a.severity);
     oneOf('verification', VERIFICATION, a.verification);
@@ -379,6 +384,7 @@ export const update_data_scope = spacetimedb.reducer(
   (ctx, a) => {
     const { incident } = requireIncidentCapability(ctx, a.incidentId, 'EDIT_DATA_SCOPE');
     requireOpenIncident(incident.status);
+    consumeRateLimit(ctx, 'incident_write');
     requireSameIncident(ctx, 'asset', a.assetId, incident.id);
     text('dataCategory', a.dataCategory, LIMITS.SHORT_TEXT);
     oneOf('sensitivity', DATA_SENSITIVITY, a.sensitivity);
