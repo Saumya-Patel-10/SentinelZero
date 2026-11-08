@@ -5,7 +5,7 @@ import { MOCK_USERS } from '../fixtures/mockData';
 describe('Incident Lifecycle Reducers & Validation', () => {
   beforeEach(() => {
     // Reset to commander
-    spacetimeClient.setCurrentUser(MOCK_USERS[0]); // Dr. Sarah Chen (COMMANDER)
+    spacetimeClient.setCurrentUser(MOCK_USERS[0]); // Saumya (COMMANDER)
   });
 
   it('allows valid sequential status transitions', async () => {
@@ -25,7 +25,7 @@ describe('Incident Lifecycle Reducers & Validation', () => {
       description: 'Testing lifecycle validation transitions',
       category: 'MALWARE',
       severity: 'HIGH',
-      commander_identity: 'identity_sarah_chen',
+      commander_identity: 'identity_saumya',
     });
 
     expect(newInc.status).toBe('REPORTED');
