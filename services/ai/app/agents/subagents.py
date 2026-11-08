@@ -43,7 +43,7 @@ READ_ONLY_TOOLS = frozenset(
 # Code-enforced per-sub-agent allowlists.  propose_task is the only write-like
 # tool and only containment may use it; communications gets no tools at all.
 SUBAGENT_TOOLS: dict[str, frozenset[str]] = {
-    "triage": frozenset({"get_incident", "get_evidence_summaries"}),
+    "triage": frozenset({"get_incident", "get_evidence_summaries", "query_threat_intelligence"}),
     "impact": frozenset({"get_assets", "get_dependencies"}),
     "containment": frozenset({"get_open_tasks", "propose_task"}),
     "communications": frozenset(),
@@ -153,8 +153,10 @@ containment, or remediation.
 _ROLES: dict[str, str] = {
     "triage": (
         "You are the TRIAGE specialist (NIST SP 800-61r3 Detect/Analyze). Call get_incident and "
-        "get_evidence_summaries, then report only facts that cite returned evidence ids, plus the "
-        "open questions (uncertainties) that a human analyst must resolve."
+        "get_evidence_summaries. You may also call query_threat_intelligence with a CVE or product "
+        "name when the incident text names one; that tool reads the public CISA KEV feed only and "
+        "returns UNAVAILABLE when the feed cannot be reached. Report only facts that cite returned "
+        "evidence ids, plus the open questions a human analyst must resolve."
     ),
     "impact": (
         "You are the IMPACT specialist. Call get_assets and get_dependencies, then map each affected "
@@ -163,11 +165,12 @@ _ROLES: dict[str, str] = {
         "exactly as the backend reports them; UNKNOWN and SUSPECTED must stay UNKNOWN and SUSPECTED."
     ),
     "containment": (
-        "You are the CONTAINMENT and RECOVERY planner. Call get_open_tasks first to avoid duplicates. "
-        "Then record at most three containment or recovery actions, each with one propose_task call. "
-        "Every proposal is PENDING and always requires human approval; prefer evidence preservation, "
-        "continuity, and verification steps over destructive ones. Do not list actions in your final "
-        "JSON; only propose_task records proposals."
+        "You are the CONTAINMENT and RECOVERY planner. Read the prior impact mappings and call "
+        "get_open_tasks first to avoid duplicates. Then record at most three PENDING actions with "
+        "propose_task, ordered by downstream human impact: evidence preservation first, then "
+        "continuity for the most affected human unit, then a verification step for any UNKNOWN "
+        "exfiltration status. Prefer non-destructive steps. Do not list actions in your final JSON; "
+        "only propose_task records proposals."
     ),
     "communications": (
         "You are the COMMUNICATIONS specialist. You have no tools. Draft a short out-of-band "
