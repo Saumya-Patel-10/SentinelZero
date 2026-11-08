@@ -16,7 +16,7 @@ export const ConnectionBanner: React.FC = () => {
       <div className="flex items-center gap-2.5">
         <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
         <span>
-          <strong>DISCONNECTED STATE:</strong> Real-time synchronization lost. Mutations are queued locally and will not silently replay privileged writes.
+          <strong>DISCONNECTED STATE:</strong> This exercise session is not attached to SpacetimeDB. Writes stay in this browser and are not queued for a server.
         </span>
       </div>
       <Button
