@@ -44,6 +44,20 @@ export function useIncidents() {
     []
   );
 
+  const updateDataScope = useCallback(
+    async (scopeId: string, updates: Partial<DataScope>) => {
+      return await spacetimeClient.updateDataScope(scopeId, updates);
+    },
+    []
+  );
+
+  const createDataScope = useCallback(
+    async (payload: Omit<DataScope, 'id' | 'organization_id' | 'incident_id'>) => {
+      return await spacetimeClient.createDataScope(payload);
+    },
+    []
+  );
+
   return {
     incident,
     assets,
@@ -52,6 +66,8 @@ export function useIncidents() {
     transitionStatus,
     updateAsset,
     createNewIncident,
+    updateDataScope,
+    createDataScope,
   };
 }
 
