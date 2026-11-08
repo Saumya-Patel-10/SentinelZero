@@ -116,28 +116,44 @@ class AppRuntime:
         except RuntimeError:  # event loop shutting down
             pass
 
-    async def _run(self, run_id: str, access: RunAccess) -> None:
-        try:
+    def _make_agent(self):
+        if self.settings.agent_mode == "single":
             from app.agents.incident_agent import IncidentAgent
 
-            agent = IncidentAgent(
-                settings=self.settings,
-                backend=self.backend,
-                provider=self.provider,
-                store=self.store,
+            agent_cls = IncidentAgent
+        else:
+            from app.agents.orchestrator import IncidentOrchestrator
+
+            agent_cls = IncidentOrchestrator
+        return agent_cls(
+            settings=self.settings,
+            backend=self.backend,
+            provider=self.provider,
+            store=self.store,
+        )
+
+    async def _report_cancelled(self, run_id: str) -> None:
+        # agent_complete_run accepts only COMPLETED | FAILED; a service-side
+        # cancellation is FAILED with errorCategory CANCELLED.
+        try:
+            await self.backend.agent_complete_run(
+                run_id=run_id,
+                status="FAILED",
+                error_category="CANCELLED",
+                summary="Run cancelled by user.",
             )
-            await agent.run(run_id, access)
+        except Exception:
+            logger.warning("runtime_cancel_backend_failed run_id=%s", run_id)
+
+    async def _run(self, run_id: str, access: RunAccess) -> None:
+        try:
+            await self._make_agent().run(run_id, access)
         except asyncio.CancelledError:
+            state = await self.store.get_state(run_id)
+            already_reported = state is not None and state.cancel_event.is_set()
             await self.store.mark_cancelled(run_id)
-            try:
-                await self.backend.agent_complete_run(
-                    run_id=run_id,
-                    status="CANCELLED",
-                    error_category="CANCELLED",
-                    summary="Run cancelled by user.",
-                )
-            except Exception:
-                logger.exception("runtime_cancel_complete_failed run_id=%s", run_id)
+            if not already_reported:
+                await self._report_cancelled(run_id)
         except Exception:
             logger.exception("runtime_agent_crash run_id=%s", run_id)
             try:
@@ -155,19 +171,12 @@ class AppRuntime:
         state = await self.store.get_state(run_id)
         if state is None:
             return
-        try:
-            await self.backend.agent_complete_run(
-                run_id=run_id,
-                status="CANCELLED",
-                error_category="CANCELLED",
-                summary="Run cancelled by user.",
-            )
-        except Exception:
-            logger.exception("runtime_cancel_backend_failed run_id=%s", run_id)
         state.cancel_event.set()
+        await self.store.mark_cancelled(run_id)
         task = state.task or self._tasks.get(run_id)
         if task and not task.done():
             task.cancel()
+        await self._report_cancelled(run_id)
 
     async def aclose(self) -> None:
         tasks = list(self._tasks.values())
