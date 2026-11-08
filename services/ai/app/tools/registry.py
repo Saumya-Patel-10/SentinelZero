@@ -99,15 +99,28 @@ class ToolRegistry:
     def tool_names(self) -> tuple[str, ...]:
         return tuple(TOOL_SPECS.keys())
 
-    async def execute(self, ctx: ToolContext, call: ToolCallRequest) -> ToolExecution:
+    async def execute(
+        self,
+        ctx: ToolContext,
+        call: ToolCallRequest,
+        *,
+        allowed: frozenset[str] | None = None,
+    ) -> ToolExecution:
+        """Execute one allowlisted tool.
+
+        ``allowed`` narrows the global allowlist for a sub-agent; a call outside
+        it is denied before any argument parsing or backend access.
+        """
         if ctx.cancel_event.is_set():
             raise AgentCancelled()
+        if allowed is not None and call.name not in allowed:
+            raise ToolNotAllowed(call.name[:60])
         if time.monotonic() >= ctx.deadline:
             raise ToolExecutionFailed("The analysis deadline was exceeded before a tool call.")
         spec = TOOL_SPECS.get(call.name)
         handler = self._handlers.get(call.name)
         if spec is None or handler is None:
-            raise ToolNotAllowed(call.name)
+            raise ToolNotAllowed(call.name[:60])
 
         arguments = self._parse_arguments(call, spec.name)
         started = time.monotonic()
