@@ -2,7 +2,8 @@
 
 Adding a tool here is a security-relevant change. There is intentionally no tool
 that can approve, execute, isolate, disable, delete, transition status, or contact
-an external service.
+an external service.  The ``propose_task`` tool only records a PENDING proposal;
+a human commander approves or rejects it in the operational backend.
 """
 
 from __future__ import annotations
@@ -29,22 +30,18 @@ _PROPOSE_TASK: dict[str, Any] = {
     "type": "object",
     "properties": {
         "title": {"type": "string", "minLength": 3, "maxLength": 160},
-        "description": {"type": "string", "minLength": 5, "maxLength": 1200},
-        "priority": {"type": "string", "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"]},
-        "rationale": {"type": "string", "minLength": 5, "maxLength": 600},
+        "description": {"type": "string", "minLength": 10, "maxLength": 4000},
+        "priority": {"type": "string", "enum": ["P1", "P2", "P3", "P4"]},
+        "rationale": {"type": "string", "minLength": 1, "maxLength": 600},
         "evidence_ids": {
             "type": "array",
-            "items": {"type": "string"},
-            "maxItems": 8,
+            "items": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$"},
+            "maxItems": 20,
         },
-        "evidence_basis": {
-            "type": "string",
-            "enum": ["EVIDENCE_BACKED", "CONTINUITY_PRACTICE", "UNVERIFIED_INFERENCE"],
-        },
-        "risk_level": {"type": "string", "enum": ["LOW", "MEDIUM", "HIGH"]},
-        "assigned_role": {
-            "type": ["string", "null"],
-            "enum": ["ANALYST", "RESPONDER", "COMMANDER", None],
+        "uncertainties": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1, "maxLength": 500},
+            "maxItems": 20,
         },
     },
     "required": [
@@ -52,9 +49,6 @@ _PROPOSE_TASK: dict[str, Any] = {
         "description",
         "priority",
         "rationale",
-        "evidence_ids",
-        "evidence_basis",
-        "risk_level",
     ],
     "additionalProperties": False,
 }

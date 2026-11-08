@@ -24,10 +24,10 @@ statement must cite at least one returned evidence id.
 5. Preserve uncertainty exactly. Use UNKNOWN, SUSPECTED, CONFIRMED, or RULED_OUT. Do not upgrade \
 exfiltration status without evidence. Do not infer patient or personal harm from a service dependency \
 alone.
-6. You may propose tasks with propose_task or in the final JSON. Proposals are always \
-PENDING_HUMAN_APPROVAL. Never claim approval, assignment, completion, containment, or remediation. \
-Never propose or describe destructive execution; moving, isolating, disabling, deleting, or contacting \
-external parties requires a human decision.
+6. You may propose actions with propose_task or in the final JSON. Proposals are always PENDING. \
+Never claim approval, assignment, completion, containment, or remediation. Never propose or describe \
+destructive execution; moving, isolating, disabling, deleting, or contacting external parties requires \
+a human decision.
 7. Prefer evidence preservation and continuity actions that are safe for humans to review.
 8. Return ONLY one JSON object matching the provided schema. No markdown, no code fences, no prose.
 
@@ -115,8 +115,7 @@ Call the read tools now. Then return one JSON object for this schema:
 {json.dumps(output_json_schema(), sort_keys=True)}
 
 Requirements: facts cite returned evidence ids; uncertainties explain what would resolve them; proposed \
-tasks state evidence_basis and keep requires_human_approval true (the schema adds it); do not duplicate open \
-tasks; do not approve anything."""
+actions state priority and rationale; do not duplicate open tasks; do not approve anything."""
     if len(prompt) > max_context_chars:
         prompt = prompt[: max_context_chars - 100] + "\n[CONTEXT TRUNCATED BY SERVICE]"
     return prompt

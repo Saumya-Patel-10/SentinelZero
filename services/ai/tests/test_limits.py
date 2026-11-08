@@ -55,15 +55,25 @@ async def test_concurrent_limiter_acquire_release():
     await limiter.release("user")  # underflow is safe
 
 
-async def test_endpoint_rate_limit_returns_429(app_factory, client_factory):
+async def test_endpoint_rate_limit_returns_429(app_factory, client_factory, stdb):
     from conftest import test_settings
 
     app = app_factory(settings=test_settings(rate_limit_per_minute=1, rate_limit_burst=0))
     client = await client_factory(app)
     headers = auth_headers()
 
-    first = await client.post(ANALYZE, json={}, headers=headers)
-    second = await client.post(ANALYZE, json={}, headers=headers)
+    stdb.set_run("run_rate_limit_1", status="REQUESTED")
+    first = await client.post(
+        ANALYZE,
+        json={"incident_id": INCIDENT, "run_id": "run_rate_limit_1", "analysis_type": "intake"},
+        headers=headers,
+    )
+    stdb.set_run("run_rate_limit_2", status="REQUESTED")
+    second = await client.post(
+        ANALYZE,
+        json={"incident_id": INCIDENT, "run_id": "run_rate_limit_2", "analysis_type": "intake"},
+        headers=headers,
+    )
 
     assert first.status_code == 202
     assert second.status_code == 429
@@ -72,9 +82,7 @@ async def test_endpoint_rate_limit_returns_429(app_factory, client_factory):
     assert second.json()["error"]["details"]["retry_after_seconds"] >= 1
 
 
-async def test_per_user_concurrency_limit_returns_429(app_factory, client_factory):
-    from conftest import test_settings, wait_for_run
-
+async def test_per_user_concurrency_limit_returns_429(app_factory, client_factory, stdb):
     class SlowProvider:
         descriptor = ProviderDescriptor(
             mode="scripted",
@@ -91,7 +99,7 @@ async def test_per_user_concurrency_limit_returns_429(app_factory, client_factor
             return None
 
     app = app_factory(
-        settings=test_settings(
+        settings=__import__("conftest", fromlist=["test_settings"]).test_settings(
             max_concurrent_runs_per_user=1,
             rate_limit_per_minute=100,
             rate_limit_burst=10,
@@ -101,9 +109,19 @@ async def test_per_user_concurrency_limit_returns_429(app_factory, client_factor
     client = await client_factory(app)
     headers = auth_headers()
 
-    first = await client.post(ANALYZE, json={}, headers=headers)
+    stdb.set_run("run_concurrent_1", status="REQUESTED")
+    first = await client.post(
+        ANALYZE,
+        json={"incident_id": INCIDENT, "run_id": "run_concurrent_1", "analysis_type": "intake"},
+        headers=headers,
+    )
     assert first.status_code == 202
-    second = await client.post(ANALYZE, json={}, headers=headers)
+    stdb.set_run("run_concurrent_2", status="REQUESTED")
+    second = await client.post(
+        ANALYZE,
+        json={"incident_id": INCIDENT, "run_id": "run_concurrent_2", "analysis_type": "intake"},
+        headers=headers,
+    )
 
     assert second.status_code == 429
     assert second.json()["error"]["code"] == "RATE_LIMITED"
@@ -111,13 +129,16 @@ async def test_per_user_concurrency_limit_returns_429(app_factory, client_factor
 
     run_id = first.json()["run_id"]
     await client.post(f"/v1/agent-runs/{run_id}/cancel", headers=headers)
-    await wait_for_run(client, run_id, headers)
 
-    # The slot is released after the cancelled task finishes. Poll briefly; the
-    # status flips to CANCELLED before the runtime `finally` block runs.
+    # Poll for the slot to be released.
     third = None
-    for _ in range(50):
-        third = await client.post(ANALYZE, json={}, headers=headers)
+    for _ in range(100):
+        stdb.set_run("run_concurrent_3", status="REQUESTED")
+        third = await client.post(
+            ANALYZE,
+            json={"incident_id": INCIDENT, "run_id": "run_concurrent_3", "analysis_type": "intake"},
+            headers=headers,
+        )
         if third.status_code == 202:
             break
         await asyncio.sleep(0.02)

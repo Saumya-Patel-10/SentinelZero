@@ -1,15 +1,19 @@
 """Bounded multi-step incident agent.
 
-Loop: authenticate/authorize -> retrieve minimal incident header -> initial model
-call -> validate tool requests -> execute allowlisted read tools -> follow-up ->
-validate evidence-grounded JSON -> return a PENDING proposal bundle.
+Loop: retrieve minimal incident header -> initial model call -> validate tool
+requests -> execute allowlisted read tools -> follow-up -> validate
+evidence-grounded JSON -> submit a PENDING recommendation -> complete the run.
 
 The agent has no capability to approve, execute, or persist a committed task.
+All writes go through ``agent_submit_recommendation`` (PENDING only) and
+``agent_complete_run`` (terminal status).  A human commander approves or rejects
+through the operational backend.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -17,11 +21,10 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-from app.auth import Principal
+from app.auth import RunAccess
 from app.backend import BackendClient, assert_pending_only
 from app.config import Settings
 from app.errors import (
-    ACCESS_DENIED,
     AI_CONTEXT_LIMIT,
     AI_OUTPUT_INVALID,
     AI_STEP_LIMIT,
@@ -40,7 +43,6 @@ from app.llm.structured_output import (
 )
 from app.llm.types import ModelProvider, ProviderError
 from app.schemas import (
-    ProposedTaskDraft,
     ProviderCallRecord,
     Recommendation,
     RecommendationDraft,
@@ -82,7 +84,7 @@ class IncidentAgent:
         self.store = store
         self.registry = registry or ToolRegistry()
 
-    async def run(self, run_id: str, principal: Principal) -> None:
+    async def run(self, run_id: str, access: RunAccess) -> None:
         state = await self.store.get_state(run_id)
         if state is None:
             return
@@ -96,18 +98,10 @@ class IncidentAgent:
         deadline = time.monotonic() + self.settings.run_deadline_seconds
 
         try:
-            decision = await self.backend.authorize_incident(
-                principal, record.incident_id, "ai.analyze"
-            )
-            if not decision.allowed:
-                raise AgentRunError(ACCESS_DENIED, "Incident access is no longer authorized.")
-
-            incident = await self.backend.get_incident(record.incident_id)
-            if (
-                incident.organization_id != principal.organization_id
-                or incident.id != record.incident_id
-            ):
-                raise AgentRunError(ACCESS_DENIED, "Incident scope check failed.")
+            # Read the incident through the authorized service-principal procedure.
+            incident = await self.backend.agent_get_incident(run_id)
+            record.incident_id = incident.incident_id
+            record.organization_id = incident.organization_id
 
             title, _ = redact_text(incident.title)
             description, redaction_counts = redact_text(incident.description)
@@ -115,18 +109,20 @@ class IncidentAgent:
             for key, value in focus_redactions.items():
                 redaction_counts[key] = redaction_counts.get(key, 0) + value
 
-            injection = scan_untrusted_text(f"{incident.title}\n{incident.description}\n{record.focus or ''}")
-            exercise_label = incident.exercise_label or "EXERCISE"
+            injection = scan_untrusted_text(
+                f"{incident.title}\n{incident.description}\n{record.focus or ''}"
+            )
+            exercise_label = incident.data_class or "EXERCISE"
 
             user_prompt = build_user_prompt(
-                incident_id=incident.id,
+                incident_id=incident.incident_id,
                 title=title[:160],
                 description=description,
                 category=incident.category,
                 severity=incident.severity,
                 status=incident.status,
-                detected_at=incident.detected_at.isoformat(),
-                reported_at=incident.reported_at.isoformat(),
+                detected_at=incident.detected_at,
+                reported_at=incident.reported_at,
                 exercise_label=exercise_label,
                 focus=focus or None,
                 injection_scan=injection,
@@ -140,7 +136,7 @@ class IncidentAgent:
 
             ctx = ToolContext(
                 backend=self.backend,
-                incident_id=incident.id,
+                incident_id=incident.incident_id,
                 organization_id=incident.organization_id,
                 run_id=run_id,
                 exercise_label=exercise_label,
@@ -304,36 +300,42 @@ class IncidentAgent:
             tool_proposals = self._validate_tool_proposals(ctx)
             draft = merge_tool_proposals(draft, tool_proposals)
 
-            recommendation = Recommendation(
-                recommendation_id=f"rec_{run_id.removeprefix('run_')[:20]}",
-                run_id=run_id,
-                incident_id=incident.id,
-                organization_id=incident.organization_id,
-                created_at=_now(),
-                model_identifier=self.provider.descriptor.model_identifier,
-                provider_mode=self.provider.descriptor.mode,
-                inference_label=self.provider.descriptor.inference_label,
-                approval_status="PENDING_HUMAN_APPROVAL",
-                exercise_label=exercise_label,
-                summary=draft.summary,
-                facts=draft.facts,
-                uncertainties=draft.uncertainties,
-                proposed_tasks=draft.proposed_tasks,
-                limitations=draft.limitations,
-                evidence_ids_used=evidence_ids_used(draft),
-                injection_suspected=injection.suspected or bool(ctx.injection_categories),
-                redaction_counts={**redaction_counts, **ctx.redaction_counts},
-            )
-            assert_pending_only(recommendation)
+            # Build the PENDING recommendation.
+            recommendation = self._build_recommendation(record, draft, ctx)
+
             if cancel_event.is_set():
                 raise AgentCancelled()
+
+            # Submit the PENDING recommendation to SpacetimeDB.
+            client_key = f"rec:{run_id}:{recommendation.id[:12]}"
+            rec_id = await self.backend.agent_submit_recommendation(
+                run_id=run_id,
+                client_key=client_key,
+                title=recommendation.title,
+                description=recommendation.description,
+                priority=recommendation.priority,
+                rationale=recommendation.rationale,
+                evidence_ids=recommendation.evidence_ids,
+                uncertainties=recommendation.uncertainties,
+            )
+            if rec_id:
+                recommendation.id = rec_id
+
+            # Mark the run COMPLETED in SpacetimeDB and locally.
+            summary = draft.description[:5000]
+            await self.backend.agent_complete_run(
+                run_id=run_id,
+                status="COMPLETED",
+                error_category="NONE",
+                summary=summary,
+            )
             await self.store.complete(run_id, recommendation)
+
             logger.info(
-                "agent_run_complete run_id=%s tool_calls=%s facts=%s tasks=%s pending=true",
+                "agent_run_complete run_id=%s tool_calls=%s actions=%s pending=true",
                 run_id,
                 total_tool_calls,
-                len(recommendation.facts),
-                len(recommendation.proposed_tasks),
+                len(draft.proposed_actions),
             )
         except AgentCancelled:
             await self.store.mark_cancelled(run_id)
@@ -377,14 +379,14 @@ class IncidentAgent:
         payload = extract_json_object(content)
         try:
             return RecommendationDraft.model_validate(payload)
-        except Exception as exc:  # pydantic ValidationError -> typed safe failure
+        except Exception as exc:
             raise OutputValidationError(
                 "Model output did not match the required recommendation schema."
             ) from exc
 
     @staticmethod
-    def _validate_tool_proposals(ctx: ToolContext) -> list[ProposedTaskDraft]:
-        validated: list[ProposedTaskDraft] = []
+    def _validate_tool_proposals(ctx: ToolContext) -> list:
+        validated = []
         for proposal in ctx.proposals:
             if any(eid not in ctx.allowed_evidence_ids for eid in proposal.evidence_ids):
                 raise AgentRunError(
@@ -393,3 +395,50 @@ class IncidentAgent:
                 )
             validated.append(proposal)
         return validated
+
+    def _build_recommendation(
+        self, record: RunRecord, draft: RecommendationDraft, ctx: ToolContext
+    ) -> Recommendation:
+        rec_id = (
+            f"rec_{hashlib.sha256(record.run_id.encode()).hexdigest()[:20]}"
+        )
+        # Use the top-level recommendation fields for the backend submission.
+        # Proposed actions are captured in the description for human review.
+        action_lines = []
+        for action in draft.proposed_actions:
+            action_lines.append(
+                f"- [{action.priority}] {action.title}: {action.description}"
+            )
+        actions_text = "\n".join(action_lines) if action_lines else ""
+        full_description = draft.description
+        if actions_text:
+            full_description += "\n\nProposed actions:\n" + actions_text
+
+        return Recommendation(
+            id=rec_id,
+            run_id=record.run_id,
+            incident_id=record.incident_id,
+            organization_id=record.organization_id,
+            agent_run_id=record.run_id,
+            title=draft.title,
+            description=full_description,
+            priority=draft.priority,
+            rationale=draft.rationale,
+            inference_mode=record.inference_mode,
+            model_identifier=record.model_identifier,
+            status="PENDING",
+            evidence_ids=sorted(
+                {
+                    eid
+                    for fact in draft.facts
+                    for eid in fact.evidence_ids
+                }
+                | {
+                    eid
+                    for action in draft.proposed_actions
+                    for eid in action.evidence_ids
+                }
+            ),
+            uncertainties=[u.question for u in draft.uncertainties],
+            created_at=_now(),
+        )

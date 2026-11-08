@@ -13,13 +13,11 @@ import httpx
 import pytest
 
 from app.llm.nemotron_client import NemotronProvider
-from app.llm.types import (
-    ProviderNotConfigured,
-    ProviderProtocolError,
-)
+from app.llm.types import ProviderNotConfigured, ProviderProtocolError
 from conftest import (
-    INCIDENT,
     FakeNemotron,
+    INCIDENT,
+    ORG,
     auth_headers,
     read_calls,
     recommendation_payload,
@@ -45,7 +43,7 @@ def _provider(settings, fake: FakeNemotron) -> NemotronProvider:
     return NemotronProvider(settings, transport=fake.transport)
 
 
-async def test_openai_compatible_tool_round_trip(app_factory, client_factory):
+async def test_openai_compatible_tool_round_trip(app_factory, client_factory, stdb):
     settings = _live_settings()
     fake = FakeNemotron(
         [
@@ -54,25 +52,31 @@ async def test_openai_compatible_tool_round_trip(app_factory, client_factory):
         ]
     )
     provider = _provider(settings, fake)
+    run_id = "run_wire_roundtrip_001"
+    stdb.set_run(run_id, status="REQUESTED", inference_mode="LIVE", model_identifier="nvidia/nemotron-3-super-120b-a12b")
     app = app_factory(settings=settings, provider=provider)
     client = await client_factory(app)
     headers = auth_headers()
 
-    accepted = await client.post(f"/v1/incidents/{INCIDENT}/analyze", json={}, headers=headers)
+    accepted = await client.post(
+        f"/v1/incidents/{INCIDENT}/analyze",
+        json={"incident_id": INCIDENT, "run_id": run_id, "analysis_type": "intake"},
+        headers=headers,
+    )
 
     assert accepted.status_code == 202
     body = accepted.json()
-    assert body["provider_mode"] == "live"
-    assert body["inference_label"] == "LIVE_NVIDIA_INFERENCE"
-    assert body["live_inference"] is True
-    assert "LIVE NVIDIA" in body["notice"]
+    assert body["run_id"] == run_id
+    assert body["status"] == "RUNNING"
+    assert body["inference_mode"] == "LIVE"
+    assert body["model_identifier"] == "nvidia/nemotron-3-super-120b-a12b"
 
-    run = await wait_for_run(client, body["run_id"], headers)
+    run = await wait_for_run(client, run_id, headers)
 
     assert run["status"] == "COMPLETED"
-    assert run["inference_label"] == "LIVE_NVIDIA_INFERENCE"
+    assert run["inference_mode"] == "LIVE"
     assert len(run["provider_calls"]) == 2
-    assert run["recommendation"]["approval_status"] == "PENDING_HUMAN_APPROVAL"
+    assert run["recommendation"]["status"] == "PENDING"
 
     # --- request wire shape -------------------------------------------------
     assert len(fake.requests) == 2
@@ -115,7 +119,7 @@ async def test_openai_compatible_tool_round_trip(app_factory, client_factory):
         assert set(json.loads(message["content"])) >= {"tool", "data", "exercise_label"}
 
     assert run["tool_calls"]
-    assert run["recommendation"]["inference_label"] == "LIVE_NVIDIA_INFERENCE"
+    assert run["recommendation"]["inference_mode"] == "LIVE"
 
 
 async def test_response_format_400_falls_back_without_format():
@@ -248,19 +252,22 @@ async def test_unconfigured_provider_fails_closed():
     await provider.aclose()
 
 
-async def test_custom_endpoint_is_not_labeled_live_nvidia(app_factory, client_factory):
+async def test_custom_endpoint_is_not_labeled_live_nvidia(app_factory, client_factory, stdb):
     settings = _live_settings(nvidia_base_url="https://llm.internal.example/v1")
     fake = FakeNemotron([FakeNemotron.final_turn(recommendation_payload())])
     provider = _provider(settings, fake)
+    run_id = "run_custom_001"
+    stdb.set_run(run_id, status="REQUESTED", inference_mode="FIXTURE")
     app = app_factory(settings=settings, provider=provider)
     client = await client_factory(app)
 
     response = await client.post(
-        f"/v1/incidents/{INCIDENT}/analyze", json={}, headers=auth_headers()
+        f"/v1/incidents/{INCIDENT}/analyze",
+        json={"incident_id": INCIDENT, "run_id": run_id, "analysis_type": "intake"},
+        headers=auth_headers(),
     )
 
     assert response.status_code == 202
     body = response.json()
-    assert body["inference_label"] == "UNVERIFIED_PROVIDER"
-    assert body["live_inference"] is False
-    assert "not attested" in body["notice"]
+    assert body["inference_mode"] == "FIXTURE"
+    assert body["model_identifier"] == "nvidia/nemotron-3-super-120b-a12b"
