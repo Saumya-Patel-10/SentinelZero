@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useIncidents } from '../hooks/useIncidents';
 import { useAuth } from '../hooks/useAuth';
+import { useTeam } from '../hooks/useTeam';
 import { useUIStore } from '../stores/uiStore';
 import { IncidentLifecycleBar } from '../components/incidents/IncidentLifecycleBar';
 import { KPIOverview } from '../components/dashboard/KPIOverview';
@@ -12,11 +13,13 @@ import { Clock, Database, Network, Plus, ShieldAlert, User, Users } from 'lucide
 
 export const CommandCenterPage: React.FC = () => {
   const { incident } = useIncidents();
+  const { users } = useTeam();
   const { isCommander } = useAuth();
   const setCurrentView = useUIStore((s) => s.setCurrentView);
   const [createIncidentOpen, setCreateIncidentOpen] = useState(false);
 
   if (!incident) return null;
+  const commander = users.find((user) => user.auth_identity === incident.commander_identity);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -39,7 +42,7 @@ export const CommandCenterPage: React.FC = () => {
           <div className="flex flex-wrap items-center gap-4 text-xs font-mono text-slate-400 pt-1">
             <span className="flex items-center gap-1.5">
               <User className="w-3.5 h-3.5 text-cyan-400" />
-              Commander: <strong className="text-slate-200">Saumya</strong> <span className="text-slate-500">({incident.commander_identity})</span>
+              Commander: <strong className="text-slate-200">{commander?.display_name ?? incident.commander_identity}</strong> <span className="text-slate-500">({incident.commander_identity})</span>
             </span>
             <span className="flex items-center gap-1.5">
               <Clock className="w-3.5 h-3.5 text-slate-400" />
