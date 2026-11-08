@@ -40,6 +40,11 @@ export function stringList(field: string, values: string[], item: Bounds): strin
   return values;
 }
 
+/** A CLOSED incident and all its children are read-only until a COMMANDER reopens it. */
+export function requireOpenIncident(status: string): void {
+  if (status === 'CLOSED') fail('INVALID_TRANSITION', 'closed incidents are read-only; reopen first');
+}
+
 export function expectVersion(entity: string, actual: number, expected: number): void {
   if (actual !== expected) fail('VERSION_CONFLICT', `${entity} version is ${actual}, expected ${expected}`);
 }
