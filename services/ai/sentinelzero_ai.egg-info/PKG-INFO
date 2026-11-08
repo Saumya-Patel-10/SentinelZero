@@ -12,5 +12,5 @@ Requires-Dist: PyJWT==2.15.1
 Provides-Extra: dev
 Requires-Dist: pytest==9.2.0; extra == "dev"
 Requires-Dist: pytest-asyncio==1.4.1.post1; extra == "dev"
-Requires-Dist: pytest-cov==7.17.2; extra == "dev"
+Requires-Dist: pytest-cov==7.1.0; extra == "dev"
 Requires-Dist: anyio==4.16.0; extra == "dev"
