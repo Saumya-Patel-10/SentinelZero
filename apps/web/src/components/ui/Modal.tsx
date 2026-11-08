@@ -1,9 +1,10 @@
 import React, { useEffect, useId } from 'react';
-import { X } from 'lucide-react';
+import { Minus, X } from 'lucide-react';
 
 interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onMinimize?: () => void;
   title: string;
   subtitle?: string;
   children: React.ReactNode;
@@ -14,6 +15,7 @@ interface ModalProps {
 export const Modal: React.FC<ModalProps> = ({
   isOpen,
   onClose,
+  onMinimize,
   title,
   subtitle,
   children,
@@ -58,13 +60,26 @@ export const Modal: React.FC<ModalProps> = ({
             <h2 id={titleId} className="text-lg font-semibold text-slate-100">{title}</h2>
             {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
           </div>
-          <button
-            onClick={onClose}
-            aria-label="Close modal"
-            className="p-1 rounded-md text-slate-400 hover:text-slate-100 hover:bg-sz-bg-elevated transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1.5">
+            {onMinimize && (
+              <button
+                onClick={onMinimize}
+                aria-label="Minimize modal"
+                className="p-1 rounded-md text-slate-400 hover:text-cyan-300 hover:bg-sz-bg-elevated transition-colors"
+                title="Minimize window"
+              >
+                <Minus className="w-5 h-5" />
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              aria-label="Close modal"
+              className="p-1 rounded-md text-slate-400 hover:text-slate-100 hover:bg-sz-bg-elevated transition-colors"
+              title="Close window"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
         <div className="p-6 max-h-[80vh] overflow-y-auto">{children}</div>
       </div>
