@@ -31,7 +31,7 @@ describe('UI Components & Accessibility Guardrails', () => {
     render(<TopBar />);
     expect(screen.getByText('SENTINEL')).toBeInTheDocument();
     expect(screen.getByText('ZERO')).toBeInTheDocument();
-    expect(screen.getByText('AI Incident Copilot')).toBeInTheDocument();
+    expect(screen.getByText('Nemotron')).toBeInTheDocument();
   });
 
   it('renders ConnectionBanner when state transitions to DISCONNECTED', () => {
