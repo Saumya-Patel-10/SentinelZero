@@ -37,7 +37,7 @@ from app.security.guardrails import clean_text
 from app.tools.specs import TOOL_SPECS
 
 READ_ONLY_TOOLS = frozenset(
-    {"get_incident", "get_assets", "get_dependencies", "get_open_tasks", "get_evidence_summaries"}
+    {"get_incident", "get_assets", "get_dependencies", "get_open_tasks", "get_evidence_summaries", "query_threat_intelligence"}
 )
 
 # Code-enforced per-sub-agent allowlists.  propose_task is the only write-like
