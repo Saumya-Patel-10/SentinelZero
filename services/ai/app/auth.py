@@ -77,7 +77,37 @@ def extract_bearer_token(request: Request) -> str:
             "A bearer token is required.",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return authorization[len("Bearer "):]
+    token = authorization[len("Bearer "):].strip()
+    if not token or len(token) > 8_192:
+        raise ApiError(
+            401,
+            AUTH_REQUIRED,
+            "A bearer token is required.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return token
+
+
+def caller_key(token: str) -> str:
+    """Stable, non-reversible key for the caller behind an ACCEPTED token.
+
+    Used only for rate-limit and concurrency buckets, and only after SpacetimeDB
+    has accepted the token in ``verify_agent_run_access``.  SpacetimeDB derives
+    an identity from (iss, sub), so the same pair is used here; an opaque token
+    falls back to its own hash.  Never used for authorization.
+    """
+    import jwt
+
+    material = token
+    try:
+        claims = jwt.decode(token, options={"verify_signature": False})
+        if isinstance(claims, dict) and claims.get("sub"):
+            material = f"{claims.get('iss', '')}|{claims['sub']}"
+    except jwt.PyJWTError:
+        pass
+    import hashlib
+
+    return "user_" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:24]
 
 
 async def verify_run_access(
@@ -96,7 +126,7 @@ async def verify_run_access(
 
     token = extract_bearer_token(request)
 
-    if not settings.backend_service_token:
+    if not await backend.ready():
         raise ApiError(
             503,
             SERVICE_UNAVAILABLE,
