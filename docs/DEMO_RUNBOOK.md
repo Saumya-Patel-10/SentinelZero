@@ -3,10 +3,11 @@
 Status date: **2026-11-07**. Branch: `agent/03-nemotron-real-backend`.
 Audience: sponsor, reviewer, leadership.
 
-> **Truthfulness:** this demo uses a **scripted (simulated) Nemotron provider**.
-> Live NVIDIA inference is **not available** in this environment because no
-> `NVIDIA_API_KEY` is configured. The demo labels every output honestly:
-> `inference_mode=SIMULATED`, never `LIVE`.
+> **Truthfulness:** the browser command center runs on local exercise fixtures until
+> `VITE_STDB_URI` and an OIDC session are wired. The AI button stays on the labeled
+> exercise path until `configureAIAuth` is installed. A scripted provider can complete
+> the four-stage orchestrator offline. Live NVIDIA inference requires `NVIDIA_API_KEY`
+> and `AI_LIVE_TESTS=1`, and it is not part of the default demo.
 
 ---
 
@@ -14,10 +15,10 @@ Audience: sponsor, reviewer, leadership.
 
 | Time | Segment | What the audience sees |
 |---|---|---|
-| 0:00–0:25 | Secure login + incident intake | Second user signs in, OWNER creates a synthetic ransomware incident in the command center. |
-| 0:25–0:50 | Second user sees live update | Another browser session subscribes to the same incident; state updates in real time via SpacetimeDB views. |
+| 0:00–0:25 | Exercise console | Open the command center. The badge reads EXERCISE REPLAY. The role switcher changes the local user only. |
+| 0:25–0:50 | Incident and graph | Walk the lifecycle, impact graph, and data-scope ledger. Figures come from the fixture, not a live hospital feed. |
 | 0:50–1:15 | Compromised asset → affected services graph | Analyst opens the incident; the impact graph shows assets, services, dependencies, and operational impacts. |
-| 1:15–2:05 | Live Nemotron tool trace + grounded recommendation | Analyst starts a Nemotron run. Sanitized tool trace shows get_incident → get_assets → get_dependencies → get_open_tasks → get_evidence_summaries. Model produces an evidence-linked, PENDING recommendation. |
+| 1:15–2:05 | Labeled analysis | Start analysis. Without an authenticated AI session the panel shows SIMULATED and EXERCISE SCENARIO. A configured scripted service shows triage, impact, containment, and communications, then one PENDING recommendation. |
 | 2:05–2:30 | Commander approval creates one task | COMMANDER approves the recommendation in the backend; exactly one task is created with idempotency key `rec:<id>`. Responder sees the task. |
 | 2:30–2:50 | Scope + secure chat + audit | Data scopes show exfiltration status UNKNOWN. Chat messages are authenticated and persisted. Audit chain verifies. |
 | 2:50–3:00 | Outage independence + summary | Demonstrate that SentinelZero stays online when the simulated corporate network is down. Summary of verified vs unverified claims. |
