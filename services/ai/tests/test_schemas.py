@@ -108,13 +108,19 @@ def test_validate_against_evidence_rejects_fabrication():
 
 
 def test_validate_against_evidence_deduplicates_actions():
-    draft = _draft()
-    draft.proposed_actions = [
-        draft.proposed_actions[0].model_copy(update={"title": "Same Task"}),
-        draft.proposed_actions[0].model_copy(update={"title": "same task"}),
-    ]
+    action = ProposedActionDraft(
+        title="Same Task",
+        description="Preserve and hash authorized evidence; do not delete sources.",
+        priority="P1",
+        rationale="Evidence must be preserved before recovery.",
+        evidence_ids=["ev_edr_alert"],
+    )
+    draft = _draft(
+        proposed_actions=[action, action.model_copy(update={"title": "same task"})]
+    )
     merged = merge_tool_proposals(draft, [])
-    assert len(merged.proposed_actions) <= 5
+    assert len(merged.proposed_actions) == 1
+    assert merged.proposed_actions[0].title == "Same Task"
 
 
 def test_evidence_ids_used_is_sorted_and_unique():
