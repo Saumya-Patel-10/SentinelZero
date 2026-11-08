@@ -44,7 +44,7 @@ def _provider(settings, fake: FakeNemotron) -> NemotronProvider:
 
 
 async def test_openai_compatible_tool_round_trip(app_factory, client_factory, stdb):
-    settings = _live_settings()
+    settings = _live_settings(agent_mode="single")
     fake = FakeNemotron(
         [
             FakeNemotron.tool_turn(read_calls()),
@@ -120,6 +120,185 @@ async def test_openai_compatible_tool_round_trip(app_factory, client_factory, st
 
     assert run["tool_calls"]
     assert run["recommendation"]["inference_mode"] == "LIVE"
+
+
+def _orchestrated_outputs():
+    from app.agents.subagents import (
+        CommunicationsOutput,
+        ContainmentOutput,
+        ImpactMapping,
+        ImpactOutput,
+        TriageOutput,
+    )
+    from app.schemas import FactDraft, ProposedActionDraft, UncertaintyDraft
+
+    uncertainty = UncertaintyDraft(
+        question="Was data exfiltrated?",
+        why_unknown="No tool result in this exercise shows that data left the environment.",
+        impact_if_true="Notification obligations could expand.",
+        resolution_step="Validate network egress and database access evidence.",
+        related_evidence_ids=["ev_edr_alert"],
+    )
+    triage = TriageOutput(
+        headline="Wire triage: exfiltration stays UNKNOWN",
+        summary="Wire-test triage. The EDR evidence was returned by the backend and was not upgraded.",
+        priority="P1",
+        facts=[
+            FactDraft(
+                statement="An EDR alert is recorded for the affected exercise system.",
+                evidence_ids=["ev_edr_alert"],
+                verification="SUSPECTED",
+                confidence=0.9,
+            )
+        ],
+        uncertainties=[uncertainty],
+    )
+    impact = ImpactOutput(
+        summary="Wire-test impact. The asset keeps the compromise and exfiltration status the backend reported.",
+        mappings=[
+            ImpactMapping(
+                asset_id="ast_ehr_db",
+                service_id=None,
+                human_unit="Clinical operations team",
+                compromise="SUSPECTED",
+                exfiltration="UNKNOWN",
+                evidence_ids=["ev_edr_alert"],
+            )
+        ],
+        uncertainties=[uncertainty],
+    )
+    containment = ContainmentOutput(
+        summary="Wire-test containment. The proposal is pending human approval and was not executed.",
+        rationale="Preserve evidence before any recovery change. A commander must approve it.",
+    )
+    communications = CommunicationsOutput(
+        audience="INCIDENT_COMMAND",
+        sitrep=(
+            "Wire-test situation report. Known: exercise evidence ev_edr_alert is on file. "
+            "Unknown: whether data was exfiltrated. Pending: one containment proposal awaits approval. "
+            "Next update: after commander review. This draft was not sent."
+        ),
+    )
+    proposal = ProposedActionDraft(
+        title="Preserve and hash evidence for the incident",
+        description="Collect and hash the listed evidence. Do not delete or modify source systems.",
+        priority="P1",
+        rationale="Evidence must be preserved before recovery changes systems.",
+        evidence_ids=["ev_edr_alert"],
+    )
+    return triage, impact, containment, communications, proposal
+
+
+async def test_orchestrated_openai_compatible_tool_round_trip(app_factory, client_factory, stdb):
+    """Each sub-agent is offered only its allowlist, then a schema-constrained final turn."""
+
+    triage, impact, containment, communications, proposal = _orchestrated_outputs()
+    settings = _live_settings()
+    fake = FakeNemotron(
+        [
+            FakeNemotron.tool_turn(
+                [
+                    ("call_triage_incident", "get_incident", "{}"),
+                    ("call_triage_evidence", "get_evidence_summaries", "{}"),
+                ]
+            ),
+            FakeNemotron.final_turn(triage.model_dump(mode="json")),
+            FakeNemotron.tool_turn(
+                [
+                    ("call_impact_assets", "get_assets", "{}"),
+                    ("call_impact_deps", "get_dependencies", "{}"),
+                ]
+            ),
+            FakeNemotron.final_turn(impact.model_dump(mode="json")),
+            FakeNemotron.tool_turn(
+                [
+                    ("call_contain_tasks", "get_open_tasks", "{}"),
+                    (
+                        "call_contain_propose",
+                        "propose_task",
+                        json.dumps(proposal.model_dump(mode="json")),
+                    ),
+                ]
+            ),
+            FakeNemotron.final_turn(containment.model_dump(mode="json")),
+            FakeNemotron.final_turn(communications.model_dump(mode="json")),
+        ]
+    )
+    provider = _provider(settings, fake)
+    run_id = "run_wire_orchestrated_001"
+    stdb.set_run(
+        run_id,
+        status="REQUESTED",
+        inference_mode="LIVE",
+        model_identifier="nvidia/nemotron-3-super-120b-a12b",
+    )
+    app = app_factory(settings=settings, provider=provider)
+    client = await client_factory(app)
+    headers = auth_headers()
+
+    accepted = await client.post(
+        f"/v1/incidents/{INCIDENT}/analyze",
+        json={"incident_id": INCIDENT, "run_id": run_id, "analysis_type": "intake"},
+        headers=headers,
+    )
+    assert accepted.status_code == 202
+    assert accepted.json()["inference_mode"] == "LIVE"
+
+    run = await wait_for_run(client, run_id, headers)
+    assert run["status"] == "COMPLETED", run.get("error_message") or run.get("error_category")
+    assert run["agent_mode"] == "orchestrated"
+    assert [item["name"] for item in run["subagents"]] == [
+        "triage",
+        "impact",
+        "containment",
+        "communications",
+    ]
+    assert all(item["status"] == "COMPLETED" for item in run["subagents"])
+    assert all(len(item["summary"]) <= 600 for item in run["subagents"])
+    assert run["sitrep"]
+    assert len(run["sitrep"]) <= 2000
+    assert run["recommendation"]["status"] == "PENDING"
+    assert run["recommendation"]["requires_human_approval"] is True
+
+    assert len(fake.requests) == 7
+    bodies = [request["body"] for request in fake.requests]
+    assert all(request["url"] == NVIDIA_URL for request in fake.requests)
+    assert all(request["headers"]["authorization"].startswith("Bearer ") for request in fake.requests)
+
+    triage_tools = {tool["function"]["name"] for tool in bodies[0]["tools"]}
+    assert triage_tools == {"get_incident", "get_evidence_summaries"}
+    assert "response_format" not in bodies[0]
+    assert bodies[0]["tool_choice"] == "auto"
+    assert "[sentinelzero-subagent:triage]" in bodies[0]["messages"][0]["content"]
+
+    assert bodies[1]["response_format"]["json_schema"]["name"] == "sentinelzero_triage_output"
+    triage_followups = [message for message in bodies[1]["messages"] if message["role"] == "tool"]
+    assert {message["name"] for message in triage_followups} == {
+        "get_incident",
+        "get_evidence_summaries",
+    }
+
+    assert {tool["function"]["name"] for tool in bodies[2]["tools"]} == {
+        "get_assets",
+        "get_dependencies",
+    }
+    impact_user = next(message["content"] for message in bodies[2]["messages"] if message["role"] == "user")
+    assert "<untrusted_prior_subagent_output>" in impact_user
+    assert "</untrusted_prior_subagent_output>" in impact_user
+
+    assert {tool["function"]["name"] for tool in bodies[4]["tools"]} == {
+        "get_open_tasks",
+        "propose_task",
+    }
+    assert "approve_task" not in {tool["function"]["name"] for tool in bodies[4]["tools"]}
+    containment_followups = [message for message in bodies[5]["messages"] if message["role"] == "tool"]
+    assert {message["name"] for message in containment_followups} == {"get_open_tasks", "propose_task"}
+
+    assert "tools" not in bodies[6]
+    assert bodies[6]["response_format"]["json_schema"]["name"] == "sentinelzero_communications_output"
+    comms_user = next(message["content"] for message in bodies[6]["messages"] if message["role"] == "user")
+    assert "<untrusted_prior_subagent_output>" in comms_user
+    assert "[sentinelzero-subagent:communications]" in bodies[6]["messages"][0]["content"]
 
 
 async def test_response_format_400_falls_back_without_format():
