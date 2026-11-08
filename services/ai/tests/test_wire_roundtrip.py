@@ -44,7 +44,7 @@ def _provider(settings, fake: FakeNemotron) -> NemotronProvider:
 
 
 async def test_openai_compatible_tool_round_trip(app_factory, client_factory, stdb):
-    settings = _live_settings()
+    settings = _live_settings(agent_mode="single")
     fake = FakeNemotron(
         [
             FakeNemotron.tool_turn(read_calls()),
@@ -67,7 +67,7 @@ async def test_openai_compatible_tool_round_trip(app_factory, client_factory, st
     assert accepted.status_code == 202
     body = accepted.json()
     assert body["run_id"] == run_id
-    assert body["status"] == "RUNNING"
+    assert body["status"] == "REQUESTED"
     assert body["inference_mode"] == "LIVE"
     assert body["model_identifier"] == "nvidia/nemotron-3-super-120b-a12b"
 
