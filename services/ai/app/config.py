@@ -21,7 +21,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["development", "test", "production"]
 ProviderMode = Literal["live", "scripted"]
-BackendMode = Literal["spacetimedb"]
+BackendMode = Literal["spacetimedb", "simulator"]
+AgentMode = Literal["orchestrated", "single"]
 InferenceMode = Literal["LIVE", "SIMULATED", "FIXTURE"]
 
 
@@ -82,8 +83,15 @@ class Settings(BaseSettings):
     nvidia_force_nonempty_content: bool = False
     provider_mode: ProviderMode = "live"
     require_tool_round_trip: bool = True
+    # orchestrated: specialist sub-agents (triage, impact, containment,
+    # communications) + synthesis.  single: the original one-loop agent.
+    agent_mode: AgentMode = "orchestrated"
 
     # --- incident backend (SpacetimeDB HTTP API) --------------------------
+    # spacetimedb: the real backend.  simulator: local EXERCISE state file,
+    # refused in production.
+    backend_mode: BackendMode = "spacetimedb"
+    simulator_state_path: str | None = None
     # AI_BACKEND_BASE_URL is the SpacetimeDB host (e.g. http://127.0.0.1:3000).
     # AI_STDB_DB_NAME is the database name (e.g. sentinelzero).
     backend_base_url: str = Field(
@@ -98,11 +106,13 @@ class Settings(BaseSettings):
     backend_timeout_seconds: float = 10.0
 
     # --- bounds ------------------------------------------------------------
-    max_steps: int = Field(default=6, ge=1, le=8)
-    max_tool_calls: int = Field(default=10, ge=1, le=16)
+    # Run-wide budgets.  In orchestrated mode they are shared by ALL sub-agents
+    # and the synthesis step combined, never granted per sub-agent.
+    max_steps: int = Field(default=12, ge=1, le=24)
+    max_tool_calls: int = Field(default=16, ge=1, le=32)
     max_tool_result_chars: int = Field(default=20_000, ge=1_000, le=100_000)
-    max_context_chars: int = Field(default=32_000, ge=4_000, le=200_000)
-    run_deadline_seconds: float = Field(default=90.0, ge=5.0, le=300.0)
+    max_context_chars: int = Field(default=96_000, ge=4_000, le=400_000)
+    run_deadline_seconds: float = Field(default=240.0, ge=5.0, le=600.0)
     max_body_bytes: int = Field(default=16_384, ge=1_024, le=1_048_576)
     max_concurrent_runs_per_user: int = Field(default=2, ge=1, le=10)
     rate_limit_per_minute: int = Field(default=6, ge=1, le=120)
@@ -120,6 +130,8 @@ class Settings(BaseSettings):
         if self.environment == "production":
             if self.provider_mode == "scripted":
                 raise ValueError("AI_PROVIDER_MODE=scripted is forbidden in production")
+            if self.backend_mode != "spacetimedb":
+                raise ValueError("AI_BACKEND_MODE=simulator is forbidden in production")
             if not self.backend_service_token:
                 raise ValueError("AI_BACKEND_SERVICE_TOKEN is required for SpacetimeDB backend")
             if "*" in self.cors_origins:
@@ -176,7 +188,8 @@ class Settings(BaseSettings):
             return "LIVE_NVIDIA_INFERENCE"
         if mode == "SIMULATED":
             return "SIMULATED_MODEL_OUTPUT"
-        return "FIXTURE_MODEL_OUTPUT"
+        # Unconfigured, or configured against a non-NVIDIA host: never "live".
+        return "UNVERIFIED_PROVIDER"
 
     @property
     def is_production(self) -> bool:
@@ -200,8 +213,10 @@ class Settings(BaseSettings):
             "inference_mode": self.inference_mode,
             "inference_label": self.inference_label,
             "model_identifier": self.nvidia_model if self.provider_mode == "live" else "scripted-local-test-model",
-            "backend_mode": "spacetimedb",
-            "backend_configured": self.backend_service_token is not None,
+            "backend_mode": self.backend_mode,
+            "backend_configured": self.backend_service_token is not None
+            or self.backend_mode == "simulator",
+            "agent_mode": self.agent_mode,
         }
 
 
