@@ -242,6 +242,12 @@ export const EvidenceReference = __t.object("EvidenceReference", {
 });
 export type EvidenceReference = __Infer<typeof EvidenceReference>;
 
+export const IdSequence = __t.object("IdSequence", {
+  name: __t.string(),
+  value: __t.u64(),
+});
+export type IdSequence = __Infer<typeof IdSequence>;
+
 export const Incident = __t.object("Incident", {
   id: __t.string(),
   organizationId: __t.string(),
