@@ -140,7 +140,7 @@ describe('End-to-End User Interaction Workflows', () => {
     });
 
     expect(await screen.findByText('Out-of-Band Incident Comms Channel', undefined, { timeout: 5000 })).toBeInTheDocument();
-    expect(screen.getByText(/SECURE ISOLATED TLS/i)).toBeInTheDocument();
+    expect(screen.getByText(/EXERCISE CHANNEL/i)).toBeInTheDocument();
 
     // Type and send a message
     const input = screen.getByPlaceholderText(/Broadcast message to active responders/i);
