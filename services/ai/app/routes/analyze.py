@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, Request, status
 
 from app.auth import (
     RunAccess,
+    caller_key,
     extract_bearer_token,
     require_authorized,
     require_can_analyze,
@@ -36,16 +37,18 @@ from app.errors import (
     ApiError,
 )
 from app.runtime import acceptance_notice
-from app.schemas import AnalysisAccepted, AnalysisRequest, RunRecord, RunStatus
+from app.schemas import AnalysisAccepted, AnalysisRequest, RunRecord, initial_subagents
 from app.store import RunState
 
 logger = logging.getLogger("sentinelzero.ai.routes.analyze")
 
 router = APIRouter(tags=["analysis"])
 
+_ROLES = {"OWNER", "COMMANDER", "ANALYST", "RESPONDER", "OBSERVER"}
 
-def _concurrency_key(organization_id: str, run_id: str) -> str:
-    return f"{organization_id}:{run_id}"
+
+def _limit_key(organization_id: str, principal: str) -> str:
+    return f"{organization_id}:{principal}"
 
 
 async def _load_run(request: Request, run_id: str) -> RunState:
@@ -78,6 +81,13 @@ async def analyze_incident(
 
     # Extract the bearer token and verify access via SpacetimeDB.
     token = extract_bearer_token(request)
+    if not await backend.ready():
+        raise ApiError(
+            503,
+            SERVICE_UNAVAILABLE,
+            "Backend authorization is not configured.",
+            details={"category": "BACKEND_NOT_CONFIGURED"},
+        )
     result = await backend.verify_agent_run_access(token, run_id)
 
     access = RunAccess(
@@ -103,10 +113,11 @@ async def analyze_incident(
             details={"category": AI_PROVIDER_NOT_CONFIGURED},
         )
 
-    # Rate limit by user + incident.
-    allowed, retry_after = await request.app.state.runtime.rate_limiter.check(
-        _concurrency_key(access.organization_id, run_id)
-    )
+    # Rate limit and concurrency are per verified caller, not per run: a fresh
+    # run id must never yield a fresh bucket.
+    principal = caller_key(token)
+    limit_key = _limit_key(access.organization_id, principal)
+    allowed, retry_after = await request.app.state.runtime.rate_limiter.check(limit_key)
     if not allowed:
         raise ApiError(
             429,
@@ -117,7 +128,7 @@ async def analyze_incident(
         )
 
     # Per-user concurrency.
-    concurrency_key = _concurrency_key(access.organization_id, run_id)
+    concurrency_key = limit_key
     if not await request.app.state.runtime.concurrency.acquire(concurrency_key):
         raise ApiError(
             429,
@@ -130,20 +141,28 @@ async def analyze_incident(
         run_id=run_id,
         organization_id=access.organization_id,
         incident_id=access.incident_id,
-        requested_by=run_id,  # identity is the SpacetimeDB sender; not decoded here
-        requested_role=access.role or "ANALYST",
+        requested_by=principal,  # pseudonymous key; the identity lives in SpacetimeDB
+        requested_role=access.role if access.role in _ROLES else "ANALYST",
         status="REQUESTED",
         inference_mode=settings.inference_mode,
-        model_identifier=provider.descriptor.model_identifier,
+        model_identifier=provider.descriptor.model_identifier[:120],
         analysis_type=body.analysis_type if body else "intake",
         focus=None,
         created_at=datetime.now(timezone.utc),
+        agent_mode=settings.agent_mode,
+        subagents=initial_subagents("PENDING" if settings.agent_mode == "orchestrated" else "SKIPPED"),
     )
 
+    store = request.app.state.store
+    if not await store.create_if_absent(record):
+        # A concurrent or repeated start for the same run must not spawn a
+        # second agent loop (claims are idempotent for the same principal).
+        await request.app.state.runtime.concurrency.release(concurrency_key)
+        raise ApiError(409, INVALID_STATE, "Analysis for this run has already started.")
     try:
-        await request.app.state.store.create(record)
         await request.app.state.runtime.start(record, access, concurrency_key)
     except Exception:
+        await store.discard(run_id)
         await request.app.state.runtime.concurrency.release(concurrency_key)
         raise
 
@@ -156,14 +175,22 @@ async def get_agent_run(
     request: Request,
     access: RunAccess = Depends(verify_run_access),
 ) -> dict:
-    state = await _load_run(request, run_id)
+    # Authorize before revealing whether the run exists locally.
     require_can_read_run(access)
+    state = await _load_run(request, run_id)
 
     record = state.record
-    if record.organization_id != access.organization_id:
+    if (
+        record.organization_id != access.organization_id
+        or record.incident_id != access.incident_id
+        or access.run_id != run_id
+    ):
         raise ApiError(404, NOT_FOUND, "Agent run was not found.")
 
     payload = record.model_dump(mode="json")
+    order = {name: index for index, name in enumerate(SUBAGENT_ORDER)}
+    payload["subagents"] = sorted(payload["subagents"], key=lambda item: order[item["name"]])
+    payload["sitrep"] = payload.get("sitrep") or ""
     payload["truthfulness"] = {
         "proposal_only": True,
         "live_inference": record.inference_mode == "LIVE",
