@@ -171,7 +171,7 @@ export const TeamAccessPage: React.FC = () => {
                     <td className="p-3">
                       <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-emerald-950/60 border border-emerald-600/40 text-emerald-400">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                        PRE-ENROLLED
+                        LOCAL FIXTURE
                       </span>
                     </td>
                     {isCommander && (
