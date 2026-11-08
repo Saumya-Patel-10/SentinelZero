@@ -1,10 +1,10 @@
 import { t } from 'spacetimedb/server';
 import spacetimedb from '../schema';
-import { fail, newId } from '../security/context';
+import { newId } from '../security/context';
 import { appendAudit } from '../security/audit';
 import { requireIncidentCapability } from '../security/membership';
 import { consumeRateLimit } from '../security/rateLimit';
-import { idempotencyKey, oneOf, sha256Hex, text } from '../security/validation';
+import { idempotencyKey, oneOf, requireOpenIncident, sha256Hex, text } from '../security/validation';
 import { EVIDENCE_CLASSIFICATIONS, EVIDENCE_TYPES } from '../../../shared/src/enums';
 import { LIMITS } from '../../../shared/src/limits';
 
@@ -17,6 +17,7 @@ export const send_message = spacetimedb.reducer(
     idempotencyKey('clientMessageId', a.clientMessageId);
     const dedupeKey = `${ctx.sender.toHexString()}:${a.clientMessageId}`;
     if (ctx.db.message.dedupeKey.find(dedupeKey)) return; // idempotent resend after reconnect
+    requireOpenIncident(incident.status);
     consumeRateLimit(ctx, 'send_message');
     const id = newId(ctx);
     ctx.db.message.insert({
@@ -52,12 +53,13 @@ export const append_evidence_reference = spacetimedb.reducer(
   },
   (ctx, a) => {
     const { incident } = requireIncidentCapability(ctx, a.incidentId, 'APPEND_EVIDENCE');
-    if (incident.status === 'CLOSED') fail('INVALID_TRANSITION', 'closed incidents are read-only; reopen first');
+    requireOpenIncident(incident.status);
     oneOf('evidenceType', EVIDENCE_TYPES, a.evidenceType);
     text('source', a.source, LIMITS.EVIDENCE_SOURCE);
     sha256Hex('sha256', a.sha256);
     oneOf('classification', EVIDENCE_CLASSIFICATIONS, a.classification);
     text('description', a.description, LIMITS.DESCRIPTION);
+    consumeRateLimit(ctx, 'incident_write');
     const id = newId(ctx);
     ctx.db.evidenceReference.insert({
       id,
