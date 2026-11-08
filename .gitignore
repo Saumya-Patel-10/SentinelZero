@@ -1,0 +1,25 @@
+# Secrets: never commit real values. Use .env.example for placeholders.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_ecdsa*
+.demo/
+
+# Dependencies and build output
+node_modules/
+dist/
+build/
+coverage/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# OS and editor
+.DS_Store
+Thumbs.db
