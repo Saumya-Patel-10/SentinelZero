@@ -11,7 +11,7 @@ import { aiClient } from '../services/aiClient';
 describe('End-to-End User Interaction Workflows', () => {
   beforeEach(() => {
     // Reset state before each test
-    spacetimeClient.setCurrentUser(MOCK_USERS[0]); // Dr. Sarah Chen (Commander)
+    spacetimeClient.setCurrentUser(MOCK_USERS[0]); // Saumya (Commander)
     spacetimeClient.setConnectionStatus('CONNECTED');
     useUIStore.getState().setCurrentView('COMMAND_CENTER');
     useUIStore.getState().setSelectedNodeId(null);
@@ -95,13 +95,13 @@ describe('End-to-End User Interaction Workflows', () => {
     render(<AppRouter />);
 
     // Click AI button in TopBar
-    const aiButton = screen.getByRole('button', { name: /AI Incident Copilot/i });
+    const aiButton = screen.getByRole('button', { name: /Launch Nemotron/i });
     act(() => {
       fireEvent.click(aiButton);
     });
 
     // Verify modal is open and has run controls
-    expect(screen.getByText('NVIDIA Nemotron Incident Copilot')).toBeInTheDocument();
+    expect(screen.getByText('NVIDIA Nemotron AI Command')).toBeInTheDocument();
     expect(screen.getByTestId('ai-run-panel')).toBeInTheDocument();
     expect(screen.getByLabelText('Analysis Type')).toBeInTheDocument();
 
@@ -165,7 +165,7 @@ describe('End-to-End User Interaction Workflows', () => {
       useUIStore.getState().setAIPanelOpen(true);
     });
 
-    expect(screen.getByText('NVIDIA Nemotron Incident Copilot')).toBeInTheDocument();
+    expect(screen.getByText('NVIDIA Nemotron AI Command')).toBeInTheDocument();
 
     // Fire Escape key event
     act(() => {
