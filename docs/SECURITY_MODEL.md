@@ -113,6 +113,20 @@ The required negative cases are all verified in `negativeSecurity.test.ts`, whic
 - **unauthorized evidence access:** RESPONDER and OBSERVER see no evidence, and foreign evidence IDs are rejected in transitions, data scopes and recommendations;
 - **timeline and audit views:** they follow the role matrix.
 
+### 3.1 Backend review, November 2026 (verified in `hardening.test.ts`)
+
+A review of every reducer, procedure and view against the role matrix, tenant isolation, input limits, audit chain, rate limits and idempotency found and fixed the following. Each fix has a regression test that runs against a live server.
+
+| Finding | Severity | Fix |
+|---|---|---|
+| Two transactions with the same host timestamp generated the same row ID, because `ctx.newUuidV7()` seeds its RNG from the timestamp alone. The second insert panicked the module ("The instance encountered a fatal error."), so a burst of concurrent writes could lose some of them with an untyped error | High (availability, data loss) | `newId` takes the UUID counter from a persisted `id_sequence` row, so IDs are unique by construction (`security/context.ts`) |
+| Most writes on a CLOSED incident still succeeded: task assign/status/approve/reject, messages, AI run requests, recommendation rejection, commander assignment, and the AI's claim and submit | Medium (integrity of closed records, contract violation) | `requireOpenIncident` in every child write; only reopen, `cancel_agent_run` and `agent_complete_run` remain allowed |
+| Only messages and AI run requests were rate-limited. Any analyst could flood incidents, graph rows, tasks and evidence (each also appends an audit event), and a service principal could flood `agent_tool_call` rows, in a database shared by every tenant | Medium (cross-tenant denial of service) | New `create_incident`, `incident_write` and `agent_tool_call` limits (`shared/src/limits.ts`) |
+| `register_service_principal` checked human memberships through a helper that hides disabled users, so a disabled member could be registered as a service principal and become a human and a machine identity at once after re-enable | Low (needs a platform admin to disable the user first) | Checks every unrevoked membership row (`hasUnrevokedMembership`) |
+| The last-OWNER guard counted disabled OWNERs, so the only enabled OWNER could revoke themselves and leave the organization unmanageable | Low | Counts only enabled OWNERs other than the one being revoked |
+
+Reviewed and found sound: every reducer derives the actor from `ctx.sender`; every incident-scoped call goes through `requireIncidentCapability` and returns `INCIDENT_NOT_FOUND` to non-members; OBSERVER holds no write capability; only OWNER and COMMANDER hold `APPROVE_TASK` and `DECIDE_RECOMMENDATION`; a service principal has no membership, so every human reducer denies it, and `agent_submit_recommendation` always writes `PENDING`; every text argument is length- and character-checked; every state change appends its audit event in the same transaction; idempotency keys are scoped by organization, incident, sender or run, and a replay by a different creator is rejected.
+
 ## 4. AI boundary (verified in `agentAccess.test.ts` and `negativeSecurity.test.ts`)
 
 - The AI service authenticates as a **service principal** that an OWNER registered for one organization. It is not a member, so every view and private table returns nothing for it, and every human reducer fails.
@@ -186,4 +200,7 @@ Isolation has not been demonstrated. To claim it, run the following checks and r
 - Service-principal and platform-admin tokens are long-lived bearer tokens.
 - The audit chain has no external anchoring. The database owner is fully trusted.
 - Rate limits are per identity, and anyone can mint new identities in OPEN mode.
+- Platform-level changes (`add_trusted_issuer`, `remove_trusted_issuer`, the audience reducers) are not written to any audit chain, because audit chains are per organization.
+- Child-record calls (for example `approve_task` or `revoke_member` with another tenant's ID) answer `NOT_FOUND` for a nonexistent ID but `INCIDENT_NOT_FOUND` or `ACCESS_DENIED` for an existing one. Only incident existence is deliberately hidden; other IDs are unique but not secret.
+- `clientMessageId` and the `request_agent_run` key are deduplicated per sender, not per incident. Reusing a key in a second incident is a silent no-op, so clients must generate a fresh key per call.
 - No production deployment, isolation drill, penetration test or real-IdP integration has been performed. The web app is still mocked, and the AI service still targets a mock backend (see the handoffs in `INTEGRATION_CONTRACT.md`).
