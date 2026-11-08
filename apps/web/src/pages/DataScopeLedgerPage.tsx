@@ -122,7 +122,7 @@ export const DataScopeLedgerPage: React.FC = () => {
             <Scale className="w-3.5 h-3.5" /> Legal Disclosure Clock
           </span>
           <div className="text-base font-bold font-mono text-purple-200">HIPAA 60d • SEC 4d</div>
-          <span className="text-[10px] text-purple-300/80">Mandatory HHS notification threshold exceeded</span>
+          <span className="text-[10px] text-purple-300/80">Reminder only. Deadlines are not calculated from this ledger.</span>
         </div>
       </div>
 
@@ -133,12 +133,12 @@ export const DataScopeLedgerPage: React.FC = () => {
           <div>
             <span className="font-semibold text-slate-100">Statutory Data Breach Disclosure Triggers Active:</span>
             <p className="text-slate-300 text-[11px] mt-0.5">
-              Over 500 individual patient records affected (&gt;142,000 PHI). Breach Notification Rule requires individual notification without unreasonable delay (max 60 days) and prominent media notice.
+              Exercise ledger total: {totalEstimatedRecords.toLocaleString()} estimated records. This figure is not a legal determination. HIPAA and SEC clocks are reminders for the commander, not computed deadlines.
             </p>
           </div>
         </div>
         <span className="text-[11px] font-mono font-bold px-2.5 py-1 rounded bg-purple-900/60 border border-purple-400/40 text-purple-200 shrink-0">
-          REGULATORY COUNSEL ACTIVE
+          EXERCISE DATA
         </span>
       </div>
 
