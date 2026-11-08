@@ -4,5 +4,5 @@
     "lib": ["ES2023", "dom"],
     "types": ["node"]
   },
-  "include": ["src/**/*", "../shared/src/**/*", "bindings/**/*", "tests/**/*", "vitest.config.ts", "vitest.integration.config.ts"]
+  "include": ["src/**/*", "../shared/src/**/*", "bindings/**/*", "tests/**/*", "examples/**/*", "vitest.config.ts", "vitest.integration.config.ts"]
 }

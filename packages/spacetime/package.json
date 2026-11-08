@@ -1,14 +1,16 @@
 {
   "name": "@sentinelzero/spacetime",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "SentinelZero SpacetimeDB operational backend module (TypeScript)",
   "type": "module",
   "scripts": {
-    "build": "spacetime build",
+    "build": "node scripts/spacetime.mjs build --module-path .",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
-    "generate": "spacetime generate --lang typescript --out-dir ./bindings --module-path . --yes",
-    "publish:local": "spacetime publish sentinelzero --server local --delete-data=always --yes",
+    "generate": "node scripts/spacetime.mjs generate --lang typescript --out-dir ./bindings --module-path . --yes",
+    "publish:local": "node scripts/spacetime.mjs publish sentinelzero --server local --module-path . --delete-data=always --yes",
+    "seed:demo": "node scripts/seed-demo.mjs --publish",
+    "migration-check": "node scripts/migration-check.mjs",
     "test:unit": "vitest run --config vitest.config.ts",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test": "npm run test:unit && npm run test:integration"
