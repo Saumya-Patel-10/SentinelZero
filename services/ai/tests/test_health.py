@@ -111,7 +111,7 @@ async def test_method_not_allowed_uses_safe_envelope(app_factory, client_factory
 
     assert response.status_code == 405
     body = response.json()
-    assert body["error"]["code"] == "HTTP_ERROR"
+    assert body["error"]["code"] == "METHOD_NOT_ALLOWED"
 
 
 async def test_request_validation_error_is_sanitized(app_factory, client_factory):
@@ -146,7 +146,12 @@ async def test_oversized_body_is_rejected_before_authentication(client_factory):
 
 
 async def test_docs_are_disabled_in_production(app_factory, client_factory):
-    settings = test_settings(environment="production", enable_docs=True)
+    settings = test_settings(
+        environment="production",
+        enable_docs=True,
+        provider_mode="live",
+        nvidia_api_key="nvapi-test-key",
+    )
     app = app_factory(settings=settings)
     client = await client_factory(app)
 
