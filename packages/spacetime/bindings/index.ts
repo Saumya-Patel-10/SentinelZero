@@ -38,6 +38,7 @@ import AddAssetReducer from "./add_asset_reducer";
 import AddOperationalImpactReducer from "./add_operational_impact_reducer";
 import AddServiceReducer from "./add_service_reducer";
 import AddServiceDependencyReducer from "./add_service_dependency_reducer";
+import AddTrustedAudienceReducer from "./add_trusted_audience_reducer";
 import AddTrustedIssuerReducer from "./add_trusted_issuer_reducer";
 import AgentClaimRunReducer from "./agent_claim_run_reducer";
 import AgentCompleteRunReducer from "./agent_complete_run_reducer";
@@ -56,6 +57,7 @@ import RegisterProfileReducer from "./register_profile_reducer";
 import RegisterServicePrincipalReducer from "./register_service_principal_reducer";
 import RejectRecommendationReducer from "./reject_recommendation_reducer";
 import RejectTaskReducer from "./reject_task_reducer";
+import RemoveTrustedAudienceReducer from "./remove_trusted_audience_reducer";
 import RemoveTrustedIssuerReducer from "./remove_trusted_issuer_reducer";
 import RequestAgentRunReducer from "./request_agent_run_reducer";
 import RevokeMemberReducer from "./revoke_member_reducer";
@@ -80,13 +82,16 @@ import * as AgentGetOpenTasksProcedure from "./agent_get_open_tasks_procedure";
 import * as VerifyAgentRunAccessProcedure from "./verify_agent_run_access_procedure";
 
 // Import all table schema definitions
+import BackendInfoRow from "./backend_info_table";
 import MyAgentRunsRow from "./my_agent_runs_table";
 import MyAgentToolCallsRow from "./my_agent_tool_calls_table";
 import MyAssetsRow from "./my_assets_table";
+import MyAuditChainHeadsRow from "./my_audit_chain_heads_table";
 import MyAuditEventsRow from "./my_audit_events_table";
 import MyDataScopesRow from "./my_data_scopes_table";
 import MyEvidenceRow from "./my_evidence_table";
 import MyIncidentSummariesRow from "./my_incident_summaries_table";
+import MyIncidentTimelineRow from "./my_incident_timeline_table";
 import MyIncidentsRow from "./my_incidents_table";
 import MyMembershipsRow from "./my_memberships_table";
 import MyMessagesRow from "./my_messages_table";
@@ -104,6 +109,13 @@ import OrgMemberDirectoryRow from "./org_member_directory_table";
 
 /** The schema information for all tables in this module. This is defined the same was as the tables would have been defined in the server. */
 const tablesSchema = __schema({
+  backendInfo: __table({
+    name: 'backend_info',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, BackendInfoRow),
   myAgentRuns: __table({
     name: 'my_agent_runs',
     indexes: [
@@ -125,6 +137,13 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, MyAssetsRow),
+  myAuditChainHeads: __table({
+    name: 'my_audit_chain_heads',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyAuditChainHeadsRow),
   myAuditEvents: __table({
     name: 'my_audit_events',
     indexes: [
@@ -153,6 +172,13 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, MyIncidentSummariesRow),
+  myIncidentTimeline: __table({
+    name: 'my_incident_timeline',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyIncidentTimelineRow),
   myIncidents: __table({
     name: 'my_incidents',
     indexes: [
@@ -245,6 +271,7 @@ const reducersSchema = __reducers(
   __reducerSchema("add_operational_impact", AddOperationalImpactReducer),
   __reducerSchema("add_service", AddServiceReducer),
   __reducerSchema("add_service_dependency", AddServiceDependencyReducer),
+  __reducerSchema("add_trusted_audience", AddTrustedAudienceReducer),
   __reducerSchema("add_trusted_issuer", AddTrustedIssuerReducer),
   __reducerSchema("agent_claim_run", AgentClaimRunReducer),
   __reducerSchema("agent_complete_run", AgentCompleteRunReducer),
@@ -263,6 +290,7 @@ const reducersSchema = __reducers(
   __reducerSchema("register_service_principal", RegisterServicePrincipalReducer),
   __reducerSchema("reject_recommendation", RejectRecommendationReducer),
   __reducerSchema("reject_task", RejectTaskReducer),
+  __reducerSchema("remove_trusted_audience", RemoveTrustedAudienceReducer),
   __reducerSchema("remove_trusted_issuer", RemoveTrustedIssuerReducer),
   __reducerSchema("request_agent_run", RequestAgentRunReducer),
   __reducerSchema("revoke_member", RevokeMemberReducer),
@@ -291,12 +319,16 @@ const proceduresSchema = __procedures(
 
 type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "tables"> & {
   tables: typeof tablesSchema.schemaType.tables & {
+    /** @deprecated Use `backendInfo` instead. This alias will be removed in the next major version. */
+    readonly "backend_info": Omit<typeof tablesSchema.schemaType.tables["backendInfo"], "accessorName"> & { readonly accessorName: "backend_info" };
     /** @deprecated Use `myAgentRuns` instead. This alias will be removed in the next major version. */
     readonly "my_agent_runs": Omit<typeof tablesSchema.schemaType.tables["myAgentRuns"], "accessorName"> & { readonly accessorName: "my_agent_runs" };
     /** @deprecated Use `myAgentToolCalls` instead. This alias will be removed in the next major version. */
     readonly "my_agent_tool_calls": Omit<typeof tablesSchema.schemaType.tables["myAgentToolCalls"], "accessorName"> & { readonly accessorName: "my_agent_tool_calls" };
     /** @deprecated Use `myAssets` instead. This alias will be removed in the next major version. */
     readonly "my_assets": Omit<typeof tablesSchema.schemaType.tables["myAssets"], "accessorName"> & { readonly accessorName: "my_assets" };
+    /** @deprecated Use `myAuditChainHeads` instead. This alias will be removed in the next major version. */
+    readonly "my_audit_chain_heads": Omit<typeof tablesSchema.schemaType.tables["myAuditChainHeads"], "accessorName"> & { readonly accessorName: "my_audit_chain_heads" };
     /** @deprecated Use `myAuditEvents` instead. This alias will be removed in the next major version. */
     readonly "my_audit_events": Omit<typeof tablesSchema.schemaType.tables["myAuditEvents"], "accessorName"> & { readonly accessorName: "my_audit_events" };
     /** @deprecated Use `myDataScopes` instead. This alias will be removed in the next major version. */
@@ -305,6 +337,8 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "my_evidence": Omit<typeof tablesSchema.schemaType.tables["myEvidence"], "accessorName"> & { readonly accessorName: "my_evidence" };
     /** @deprecated Use `myIncidentSummaries` instead. This alias will be removed in the next major version. */
     readonly "my_incident_summaries": Omit<typeof tablesSchema.schemaType.tables["myIncidentSummaries"], "accessorName"> & { readonly accessorName: "my_incident_summaries" };
+    /** @deprecated Use `myIncidentTimeline` instead. This alias will be removed in the next major version. */
+    readonly "my_incident_timeline": Omit<typeof tablesSchema.schemaType.tables["myIncidentTimeline"], "accessorName"> & { readonly accessorName: "my_incident_timeline" };
     /** @deprecated Use `myIncidents` instead. This alias will be removed in the next major version. */
     readonly "my_incidents": Omit<typeof tablesSchema.schemaType.tables["myIncidents"], "accessorName"> & { readonly accessorName: "my_incidents" };
     /** @deprecated Use `myMemberships` instead. This alias will be removed in the next major version. */
@@ -347,13 +381,16 @@ const REMOTE_MODULE = {
 >;
 
 const tableAccessorAliases = {
+  "backend_info": "backendInfo",
   "my_agent_runs": "myAgentRuns",
   "my_agent_tool_calls": "myAgentToolCalls",
   "my_assets": "myAssets",
+  "my_audit_chain_heads": "myAuditChainHeads",
   "my_audit_events": "myAuditEvents",
   "my_data_scopes": "myDataScopes",
   "my_evidence": "myEvidence",
   "my_incident_summaries": "myIncidentSummaries",
+  "my_incident_timeline": "myIncidentTimeline",
   "my_incidents": "myIncidents",
   "my_memberships": "myMemberships",
   "my_messages": "myMessages",
@@ -386,12 +423,16 @@ function __withTableAccessorAliases<T extends object>(target: T, freeze = false)
 
 type __DbViewBase = __DbConnectionImpl<typeof REMOTE_MODULE>["db"];
 export type DbView = __DbViewBase & {
+  /** @deprecated Use `backendInfo` instead. This alias will be removed in the next major version. */
+  readonly "backend_info": __DbViewBase["backendInfo"];
   /** @deprecated Use `myAgentRuns` instead. This alias will be removed in the next major version. */
   readonly "my_agent_runs": __DbViewBase["myAgentRuns"];
   /** @deprecated Use `myAgentToolCalls` instead. This alias will be removed in the next major version. */
   readonly "my_agent_tool_calls": __DbViewBase["myAgentToolCalls"];
   /** @deprecated Use `myAssets` instead. This alias will be removed in the next major version. */
   readonly "my_assets": __DbViewBase["myAssets"];
+  /** @deprecated Use `myAuditChainHeads` instead. This alias will be removed in the next major version. */
+  readonly "my_audit_chain_heads": __DbViewBase["myAuditChainHeads"];
   /** @deprecated Use `myAuditEvents` instead. This alias will be removed in the next major version. */
   readonly "my_audit_events": __DbViewBase["myAuditEvents"];
   /** @deprecated Use `myDataScopes` instead. This alias will be removed in the next major version. */
@@ -400,6 +441,8 @@ export type DbView = __DbViewBase & {
   readonly "my_evidence": __DbViewBase["myEvidence"];
   /** @deprecated Use `myIncidentSummaries` instead. This alias will be removed in the next major version. */
   readonly "my_incident_summaries": __DbViewBase["myIncidentSummaries"];
+  /** @deprecated Use `myIncidentTimeline` instead. This alias will be removed in the next major version. */
+  readonly "my_incident_timeline": __DbViewBase["myIncidentTimeline"];
   /** @deprecated Use `myIncidents` instead. This alias will be removed in the next major version. */
   readonly "my_incidents": __DbViewBase["myIncidents"];
   /** @deprecated Use `myMemberships` instead. This alias will be removed in the next major version. */
@@ -428,12 +471,16 @@ export type DbView = __DbViewBase & {
 
 type __TablesBase = __QueryBuilder<typeof tablesSchema.schemaType>;
 export type Tables = __TablesBase & {
+  /** @deprecated Use `backendInfo` instead. This alias will be removed in the next major version. */
+  readonly "backend_info": __TablesBase["backendInfo"];
   /** @deprecated Use `myAgentRuns` instead. This alias will be removed in the next major version. */
   readonly "my_agent_runs": __TablesBase["myAgentRuns"];
   /** @deprecated Use `myAgentToolCalls` instead. This alias will be removed in the next major version. */
   readonly "my_agent_tool_calls": __TablesBase["myAgentToolCalls"];
   /** @deprecated Use `myAssets` instead. This alias will be removed in the next major version. */
   readonly "my_assets": __TablesBase["myAssets"];
+  /** @deprecated Use `myAuditChainHeads` instead. This alias will be removed in the next major version. */
+  readonly "my_audit_chain_heads": __TablesBase["myAuditChainHeads"];
   /** @deprecated Use `myAuditEvents` instead. This alias will be removed in the next major version. */
   readonly "my_audit_events": __TablesBase["myAuditEvents"];
   /** @deprecated Use `myDataScopes` instead. This alias will be removed in the next major version. */
@@ -442,6 +489,8 @@ export type Tables = __TablesBase & {
   readonly "my_evidence": __TablesBase["myEvidence"];
   /** @deprecated Use `myIncidentSummaries` instead. This alias will be removed in the next major version. */
   readonly "my_incident_summaries": __TablesBase["myIncidentSummaries"];
+  /** @deprecated Use `myIncidentTimeline` instead. This alias will be removed in the next major version. */
+  readonly "my_incident_timeline": __TablesBase["myIncidentTimeline"];
   /** @deprecated Use `myIncidents` instead. This alias will be removed in the next major version. */
   readonly "my_incidents": __TablesBase["myIncidents"];
   /** @deprecated Use `myMemberships` instead. This alias will be removed in the next major version. */
