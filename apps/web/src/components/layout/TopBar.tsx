@@ -40,11 +40,11 @@ export const TopBar: React.FC = () => {
           variant="outline"
           size="sm"
           onClick={() => setAIPanelOpen(true)}
-          className="border-cyan-500/50 bg-cyan-950/20 text-cyan-300 hover:bg-cyan-900/30"
+          className="border-cyan-500/50 bg-cyan-950/20 text-cyan-300 hover:bg-cyan-900/30 font-semibold"
           icon={<Bot className="w-4 h-4 text-cyan-400" />}
+          aria-label="Launch Nemotron"
         >
-          <span className="hidden sm:inline">AI Incident Copilot</span>
-          <span className="sm:hidden">AI</span>
+          <span>Nemotron</span>
         </Button>
 
         {/* Role Selector (Demo & Security verification) */}
