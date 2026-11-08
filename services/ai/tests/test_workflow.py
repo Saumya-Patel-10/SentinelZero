@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 
-from conftest import INCIDENT, ORG, auth_headers, wait_for_run
+from conftest import INCIDENT, auth_headers, test_settings, wait_for_run
 
 ANALYZE = f"/v1/incidents/{INCIDENT}/analyze"
 READ_TOOLS = {
@@ -23,7 +23,7 @@ READ_TOOLS = {
 
 
 async def test_scripted_run_completes_with_tool_round_trip(app_factory, client_factory, stdb):
-    app = app_factory()
+    app = app_factory(settings=test_settings(agent_mode="single"))
     client = await client_factory(app)
     headers = auth_headers()
 
@@ -46,6 +46,15 @@ async def test_scripted_run_completes_with_tool_round_trip(app_factory, client_f
     run = await wait_for_run(client, run_id, headers)
 
     assert run["status"] == "COMPLETED"
+    assert run["agent_mode"] == "single"
+    assert run["sitrep"] == ""
+    assert [item["name"] for item in run["subagents"]] == [
+        "triage",
+        "impact",
+        "containment",
+        "communications",
+    ]
+    assert all(item["status"] == "SKIPPED" for item in run["subagents"])
     assert run["inference_mode"] == "SIMULATED"
     assert run["error_category"] is None
     assert run["truthfulness"]["proposal_only"] is True
