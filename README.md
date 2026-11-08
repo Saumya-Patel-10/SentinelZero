@@ -15,13 +15,12 @@
 
 *An independent, real-time, AI-assisted cyber incident coordination and operational continuity command center.*
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE.txt)
 [![TypeScript 5.6](https://img.shields.io/badge/TypeScript-5.6-3178C6?logo=typescript)](https://www.typescriptlang.org/)
 [![React 18](https://img.shields.io/badge/React-18-61DAFB?logo=react)](https://react.dev/)
 [![SpacetimeDB](https://img.shields.io/badge/SpacetimeDB-2.14.1-FF4081)](https://spacetimedb.com/)
-[![NVIDIA Nemotron](https://img.shields.io/badge/NVIDIA-Nemotron--4-76B900?logo=nvidia)](https://developer.nvidia.com/topics/ai/Nemotron)
+[![NVIDIA Nemotron](https://img.shields.io/badge/NVIDIA-Nemotron-76B900?logo=nvidia)](https://developer.nvidia.com/topics/ai/Nemotron)
 [![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3.4-38B2AC?logo=tailwindcss)](https://tailwindcss.com/)
-[![Tests Passing](https://img.shields.io/badge/Tests-13%2F13%20Passing-emerald)](apps/web)
 
 </div>
 
@@ -58,9 +57,17 @@ Traditional dashboards display isolated asset lists or generic alerts. SentinelZ
 
 ### 3. NVIDIA Nemotron AI Copilot (Human-in-the-Loop)
 - Grounded in **NIST SP 800-61 Rev.3** Computer Security Incident Handling Guide.
-- **Allowlisted Read-Only Tools:** The agent may only query incident context, asset inventories, and open tasks (`get_incident`, `get_assets`, `get_dependencies`, `propose_task`).
-- **No Self-Approval or Direct Execution:** AI recommendations are recorded strictly as `PENDING` proposals. An authenticated human Incident Commander must explicitly review and authorize proposals before tasks transition to active execution.
-- **Truthful Telemetry:** Simulations and deterministic fallbacks are clearly labeled (`EXERCISE SCENARIO`) and never deceptively presented as live model inference.
+- **Four specialist sub-agents, one shared budget.** The default mode (`AI_AGENT_MODE=orchestrated`) runs Nemotron as a sequence of specialists. Each one may call only its own tools. Step, tool-call, context, and deadline limits apply to the whole run, not to each specialist separately.
+
+| Sub-agent | Job | Tools |
+|:---|:---|:---|
+| **triage** | Verified facts and open questions | `get_incident`, `get_evidence_summaries` |
+| **impact** | Asset → service → human-unit map. Does not upgrade `UNKNOWN` or `SUSPECTED` | `get_assets`, `get_dependencies` |
+| **containment** | Pending containment and recovery proposals | `get_open_tasks`, `propose_task` |
+| **communications** | Out-of-band sitrep draft. It is not sent. | none |
+- A call outside that subset is denied and the run fails without submitting a recommendation. `AI_AGENT_MODE=single` keeps the earlier one-loop agent.
+- **No Self-Approval or Direct Execution:** Only containment may propose work, and only as `PENDING`. An Incident Commander approves or rejects in the operational backend. The model has no approve, isolate, delete, or execute tool.
+- **Truthful Telemetry:** Scripted and exercise runs are labeled `SIMULATED` / `EXERCISE SCENARIO`. `LIVE` is used only when the service actually calls NVIDIA. The configured model defaults to `nvidia/nemotron-3-super-120b-a12b` and is set with `AI_NVIDIA_MODEL`.
 
 ### 4. Cryptographic Hash Chain Audit Ledger
 - Every state mutation appends an entry to a deterministic hash chain (`previous_hash` &rarr; `event_hash`).
@@ -101,9 +108,9 @@ Traditional dashboards display isolated asset lists or generic alerts. SentinelZ
 ┌──────────────────────────────────┴─────────────────────────────────────┐
 │                      FastAPI AI Copilot Service                        │
 │                                                                        │
-│ ├─ NIST SP 800-61 Rev.3 Structured Reasoning & Tool Orchestration      │
-│ ├─ Allowlisted Read Tools (get_incident, get_assets, propose_task)     │
-│ └─ NVIDIA Nemotron-4-340B LLM Endpoint (Bounded Tokens & Latency)       │
+│ ├─ Orchestrator: triage → impact → containment → communications        │
+│ ├─ Per-sub-agent allowlists, one shared step / tool / time budget       │
+│ └─ NVIDIA Nemotron (default nemotron-3-super-120b-a12b) or scripted mode│
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -123,6 +130,7 @@ SentinelZero enforces a strict five-role security matrix on all operations:
 | **Update Asset Forensic Status** | ✅ | ✅ | ✅ | ✅ | ❌ |
 | **Execute & Advance Assigned Tasks** | ✅ | ✅ | ✅ | ✅ | ❌ |
 | **Broadcast Out-of-Band Messages** | ✅ | ✅ | ✅ | ✅ | ❌ |
+| **Request an AI Analysis** | ✅ | ✅ | ✅ | ❌ | ❌ |
 | **Read Authorized Incident Summaries** | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 *Note: `OBSERVER` accounts are cryptographically restricted to read-only views.*
@@ -161,14 +169,12 @@ SentinelZero enforces explicit allowed transitions in compliance with standard i
 
 ```text
 sentinelzero/
-├── ARCHITECTURE.md                 # Master system architecture specification
-├── architecture.json               # Machine-readable architecture schema
-├── README.md                       # Master project overview & documentation
-├── package.json                    # Root workspace manifest
-├── pnpm-workspace.yaml             # Workspace package orchestration
+├── README.md                       # This overview
+├── package.json                    # Root scripts for the SpacetimeDB packages (v1.1.0)
+├── docs/                           # Integration contract, security model, data model, testing
 │
 ├── apps/
-│   └── web/                        # React 18 / Vite / TypeScript Command Center
+│   └── web/                        # React 18 / Vite / TypeScript Command Center (pnpm)
 │       ├── index.html              # HTML shell with accessibility metadata
 │       ├── package.json            # Web application dependencies & scripts
 │       ├── vite.config.ts          # Vite build config with manual chunking
@@ -177,7 +183,7 @@ sentinelzero/
 │       └── src/
 │           ├── app/                # Application shell, router, providers & error boundary
 │           ├── components/
-│           │   ├── ai/             # Nemotron AI copilot run modal & proposal cards
+│           │   ├── ai/             # Copilot panel and the four-sub-agent pipeline
 │           │   ├── communications/ # Out-of-band real-time incident chat
 │           │   ├── dashboard/      # KPI overview metrics & sitrep cards
 │           │   ├── graph/          # 2D React Flow graph, custom nodes, inspector drawer
@@ -191,16 +197,15 @@ sentinelzero/
 │           ├── pages/              # Routed pages (CommandCenter, Graph, Tasks, Comms, Admin)
 │           ├── services/           # SpacetimeDB client, AI client, and graph transforms
 │           ├── stores/             # Zustand state stores (uiStore, graphStore)
-│           └── tests/              # Vitest test suites (13 unit/lifecycle/component tests)
+│           └── tests/              # Vitest suites (56 tests: UI, lifecycle, auth, graph, AI panel)
 │
 ├── packages/
 │   ├── shared/                     # Shared TypeScript schemas, enums, limits & graph contracts
 │   └── spacetime/                  # SpacetimeDB backend module (reducers, private views, bindings)
 │
 ├── services/
-│   └── ai/                         # Python FastAPI agent orchestration with NVIDIA Nemotron
-│       ├── app/                    # Routes, tools, guardrails, and redaction logic
-│       └── tests/                  # Pytest test suite for AI tools and validation
+│   └── ai/                         # FastAPI service: Nemotron orchestrator, tools, guardrails
+│       └── app/agents/             # orchestrator, four sub-agents, and the single-loop fallback
 │
 └── simulator/                      # Synthetic hospital ransomware seed & scenario replay
 ```
@@ -210,9 +215,9 @@ sentinelzero/
 ## Quickstart Guide
 
 ### Prerequisites
-- **Node.js:** v18.0.0 or higher (v20+ recommended)
-- **Package Manager:** `pnpm` (v9+) or `npm`
-- **Python:** 3.11+ (for AI service)
+- **Node.js:** v20 or higher
+- **Package Manager:** `pnpm` (v9+) for the web app, `npm` for the SpacetimeDB packages
+- **Python:** 3.12+ (for the AI service)
 - **SpacetimeDB CLI:** exactly 2.14.1 (matches the pinned `spacetimedb` npm package and the committed bindings)
 
 ---
@@ -228,7 +233,7 @@ cd apps/web
 # Install dependencies
 pnpm install
 
-# Run the test suite (13 passing unit and component tests)
+# Run the test suite (56 tests)
 pnpm test
 
 # Run production build and verify bundle code splitting
@@ -244,7 +249,7 @@ Open **`http://localhost:5173`** in your browser.
 - **Interactive Role Switcher:** Toggle between `COMMANDER`, `ANALYST`, `RESPONDER`, and `OBSERVER` in the top bar to verify real-time authorization checks.
 - **Cyber-to-Human Impact Graph:** Switch between **2D FLOW** (React Flow) and **3D SCENE** (Three.js / React Three Fiber) seamlessly.
 - **Human Commander Approvals:** Tasks requiring authorization appear with highlighted callouts; only Commander accounts can approve them.
-- **NVIDIA Nemotron Copilot:** Click **"AI Incident Copilot"** to simulate or execute structured Nemotron reasoning and allowlisted tool invocations.
+- **NVIDIA Nemotron Copilot:** Click **"AI Incident Copilot"**. With no AI service configured, the panel runs a local exercise and labels it `EXERCISE SCENARIO` / `SIMULATED`. Point `VITE_AI_SERVICE_URL` at the FastAPI service (default `http://localhost:8000`) to use a real run. Observers and responders cannot start an analysis. The panel never approves a recommendation.
 - **Connection Outage Simulation:** Click the green **"CONNECTED"** status pill in the top bar to simulate an operational network disconnect and test local UI resilience.
 
 ---
@@ -274,44 +279,41 @@ npm run build; npm run seed:demo   # EXERCISE org + one account per role; tokens
 
 To launch the AI orchestration service:
 
+Copy `services/ai/.env.example` to `services/ai/.env`. Do not commit the copy. `AI_PROVIDER_MODE=scripted` labels every run `SIMULATED` and does not call NVIDIA. `AI_PROVIDER_MODE=live` needs `NVIDIA_API_KEY` and is the only mode that may report `LIVE`. `AI_AGENT_MODE=orchestrated` is the default. Scripted mode is refused when `AI_ENVIRONMENT=production`.
+
 ```powershell
 cd services/ai
-
-# Create and activate virtual environment
 python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# Linux/macOS:
-# source .venv/bin/activate
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 
-# Install dependencies
-pip install -e .
+# Default suite. The live NVIDIA test stays skipped unless NVIDIA_API_KEY and AI_LIVE_TESTS=1 are set.
+.\.venv\Scripts\python.exe -m pytest -q
 
-# Configure environment variables (create .env from example)
-# NVIDIA_API_KEY=your_key_here
-
-# Run pytest test suite
-pytest
-
-# Launch FastAPI server
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+# Scripted orchestrator against a local SpacetimeDB (see section 2). Token stays server-side.
+$env:AI_ENVIRONMENT = "development"
+$env:AI_PROVIDER_MODE = "scripted"
+$env:AI_AGENT_MODE = "orchestrated"
+$env:AI_BACKEND_MODE = "spacetimedb"
+$env:AI_BACKEND_BASE_URL = "http://127.0.0.1:3000"
+$env:AI_STDB_DB_NAME = "sentinelzero"
+$env:AI_BACKEND_SERVICE_TOKEN = "<service-principal token from seed-demo>"
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
+
+The browser calls `POST /v1/incidents/{id}/analyze`, then polls `GET /v1/agent-runs/{run_id}`. That payload includes `subagents` (triage, impact, containment, communications) and `sitrep`. A finished run submits one `PENDING` recommendation. Limits, redaction, and what has not been verified against live NVIDIA are in [`docs/limitations.md`](docs/limitations.md) and [`docs/testing.md`](docs/testing.md).
 
 ---
 
 ## Verification & Testing Overview
 
-The project maintains comprehensive test coverage across all layers:
+Counts below are from this working tree on **2026-11-08**, not a standing badge.
 
-| Layer | Test Runner | Scope | Status |
-|:---|:---:|:---|:---:|
-| **Frontend UI & Components** | Vitest (`apps/web`) | Component rendering, badge text labeling, connection banner | ✅ Passed (5/5) |
-| **Frontend Lifecycle & State** | Vitest (`apps/web`) | Sequential transitions, disallowed transitions, commander reopen | ✅ Passed (3/3) |
-| **Frontend Role Authorization** | Vitest (`apps/web`) | Commander approvals, observer mutation blocks | ✅ Passed (2/2) |
-| **Graph Transformation** | Vitest (`apps/web`) | Uncertainty preservation, layer assignments, no invented edges | ✅ Passed (3/3) |
-| **Shared Contracts** | Vitest (`packages/shared`) | Frozen schema validation, enum parsing, graph building | ✅ Passed |
-| **SpacetimeDB Reducers** | Vitest (`packages/spacetime`)| Idempotency, tenancy isolation, permission checks | ✅ Passed |
-| **AI Tool Guardrails** | Pytest (`services/ai`) | Allowlist enforcement, structured output schema, redaction | ✅ Passed |
+| Layer | How to run | What it covers | Last result |
+|:---|:---|:---|:---:|
+| **Web command center** | `pnpm test` in `apps/web` | Components, lifecycle, roles, graph, AI client, sub-agent panel, XSS-sink scan | 56 passed |
+| **SpacetimeDB unit** | `npm run test:unit` from the repo root | Contracts and security helpers. No server. | 27 passed |
+| **SpacetimeDB integration** | `npm run test:integration` with `SZ_STDB_URI` | Tenancy, OIDC issuer policy, approvals, revocation, rate limits, closed-incident writes, AI service principal | 40 passed |
+| **AI service** | `pytest` in `services/ai` | Auth, bounds, allowlists, orchestrated sub-agents, wire protocol. Live NVIDIA is `pytest -m live` and stays skipped without a key. | See [`docs/testing.md`](docs/testing.md) |
 
 ---
 
@@ -334,7 +336,7 @@ SentinelZero is engineered to maintain operational resilience under adverse cybe
 - **No Autonomous Destructive Actions:** The AI copilot cannot disable accounts, isolate endpoints, delete evidence, or approve its own proposals.
 - **Honest Telemetry:** Synthetic exercise runs are explicitly labeled (`EXERCISE SCENARIO`), and hash chaining is presented honestly as cryptographic chaining rather than an immutable public blockchain.
 
-For security reports or inquiries, please review our [SECURITY.md](SECURITY.md) guidelines.
+Authorization, tenant isolation, rate limits, and the AI boundary are in [`docs/SECURITY_MODEL.md`](docs/SECURITY_MODEL.md) and [`docs/threat-model.md`](docs/threat-model.md). Closed incidents reject child writes. The exceptions are a commander reopen, cancelling an in-flight AI run, and completing that run.
 
 ---
 
