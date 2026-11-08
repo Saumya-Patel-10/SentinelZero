@@ -163,18 +163,19 @@ def make_fake_stdb() -> FakeSpacetimeDB:
     stdb = FakeSpacetimeDB()
 
     # Default handlers
-    stdb.on(
-        "verify_agent_run_access",
-        lambda args: [
+    def verify_access(args: list[Any]) -> list[Any]:
+        run_id = args[0] if args else "run_test"
+        return [
             True,
             True,
             "ANALYST",
-            args[0] if args else "run_test",
-            INCIDENT,
-            ORG,
-            "REQUESTED",
-        ],
-    )
+            run_id,
+            stdb._incident_id.get(run_id, INCIDENT),
+            stdb._organization_id.get(run_id, ORG),
+            stdb.run_status.get(run_id, "REQUESTED"),
+        ]
+
+    stdb.on("verify_agent_run_access", verify_access)
     stdb.on("agent_claim_run", lambda args: None)
     stdb.on("agent_get_incident", lambda args: _fake_incident(args[0] if args else ""))
     stdb.on("agent_get_assets", lambda args: _fake_assets(args[0] if args else ""))
@@ -256,15 +257,13 @@ def _fake_evidence(run_id: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture()
 def stdb() -> FakeSpacetimeDB:
     return make_fake_stdb()
 
 
 @pytest.fixture()
-async def app_factory(stdb: FakeSpacetimeDB | None = None):
-    if stdb is None:
-        stdb = make_fake_stdb()
+async def app_factory(stdb: FakeSpacetimeDB):
     apps = []
 
     def make(
@@ -272,13 +271,16 @@ async def app_factory(stdb: FakeSpacetimeDB | None = None):
         settings: Settings | None = None,
         provider: Any | None = None,
     ):
-        application = create_app(settings=settings or test_settings())
+        application = create_app(settings=settings or test_settings(), provider=provider)
         # Replace the backend with a SpacetimeDB client pointed at the fake.
         backend = SpacetimeDBBackendClient(
             application.state.settings, transport=stdb.transport
         )
         application.state.backend = backend
         application.state.runtime.backend = backend
+        if provider is not None:
+            application.state.provider = provider
+            application.state.runtime.provider = provider
         apps.append(application)
         return application
 
