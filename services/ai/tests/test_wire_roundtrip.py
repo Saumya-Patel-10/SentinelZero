@@ -96,6 +96,7 @@ async def test_openai_compatible_tool_round_trip(app_factory, client_factory, st
         "get_open_tasks",
         "get_evidence_summaries",
         "propose_task",
+        "query_threat_intelligence",
     }
     assert all(tool["type"] == "function" for tool in payload["tools"])
     assert "response_format" not in payload
