@@ -8,9 +8,11 @@ import { Role } from '../services/contracts';
 
 export type ActiveView = 
   | 'COMMAND_CENTER'
+  | 'DATA_SCOPES'
   | 'IMPACT_GRAPH'
   | 'TASKS_BOARD'
   | 'COMMUNICATIONS'
+  | 'TEAM_ACCESS'
   | 'AUDIT_TIMELINE'
   | 'AI_ASSISTANT';
 
@@ -33,6 +35,8 @@ interface UIState {
   setCreateTaskOpen: (open: boolean) => void;
   isAIPanelOpen: boolean;
   setAIPanelOpen: (open: boolean) => void;
+  isAIMinimized: boolean;
+  setAIMinimized: (minimized: boolean) => void;
 
   // Selected entities for inspect sidebars
   selectedNodeId: string | null;
@@ -66,6 +70,8 @@ export const useUIStore = create<UIState>((set) => ({
   setCreateTaskOpen: (open) => set({ isCreateTaskOpen: open }),
   isAIPanelOpen: false,
   setAIPanelOpen: (open) => set({ isAIPanelOpen: open }),
+  isAIMinimized: false,
+  setAIMinimized: (minimized) => set({ isAIMinimized: minimized }),
 
   selectedNodeId: null,
   setSelectedNodeId: (id) => set({ selectedNodeId: id }),
