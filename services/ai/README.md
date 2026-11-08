@@ -3,8 +3,7 @@
 Authenticated, **proposal-only** incident analysis for SentinelZero using NVIDIA
 Nemotron tool calling. The service reads authorized incident context through a
 small read-only tool allowlist, asks the model for an evidence-linked
-recommendation, validates the result, and submits it as
-`PENDING_HUMAN_APPROVAL`.
+recommendation, validates the result, and submits it as `PENDING`.
 
 > **Truthfulness:** this branch was exercised with a deterministic scripted
 > provider and a local NVIDIA-compatible wire test double. **Live NVIDIA inference
@@ -17,10 +16,13 @@ recommendation, validates the result, and submits it as
 
 **Can**
 
-- Authenticate a caller from a verified JWT and authorize the incident through the
-  incident backend.
-- Read incident header, assets, dependencies/impacts, open tasks, and evidence
-  metadata through five read-only tools.
+- Authorize the caller by forwarding the bearer token to SpacetimeDB
+  `verify_agent_run_access`. This service does not trust JWT role claims.
+- Run four sequential specialists (triage, impact, containment, communications)
+  or one single-agent loop when `AI_AGENT_MODE=single`.
+- Read incident header, assets, dependencies, open tasks, and evidence metadata.
+  Triage may also query the public CISA KEV JSON feed. `propose_task` only
+  records a PENDING proposal.
 - Produce schema-validated facts, uncertainties, and task proposals that cite
   evidence ids returned by the evidence tool.
 - Record a pending submission with an idempotent reference.
