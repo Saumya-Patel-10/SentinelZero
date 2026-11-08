@@ -38,7 +38,7 @@ _QUERY_THREAT_INTEL: dict[str, Any] = {
         "ioc_type": {
             "type": "string",
             "enum": ["MALWARE_FAMILY", "CVE_VULNERABILITY", "ATTACK_TECHNIQUE", "GENERAL"],
-            "description": "Category of threat intelligence to retrieve from external CISA KEV and MITRE ATT&CK repositories",
+            "description": "Optional hint. The lookup still searches the public CISA KEV feed only.",
         },
     },
     "required": ["query"],
@@ -125,9 +125,10 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "query_threat_intelligence": ToolSpec(
         name="query_threat_intelligence",
         description=(
-            "Intelligently query external Cybersecurity & Infrastructure Security Agency (CISA) "
-            "Known Exploited Vulnerabilities (KEV) catalog and MITRE ATT&CK framework for known ransomware "
-            "TTPs, exploit mechanics, and NIST-recommended containment playbooks."
+            "Read the public CISA Known Exploited Vulnerabilities JSON feed and return records "
+            "whose CVE, vendor, product, or name matches query. This is not an authenticated API "
+            "and it does not query MITRE ATT&CK. If the feed cannot be reached, the result is "
+            "UNAVAILABLE and no local record is substituted."
         ),
         parameters=_QUERY_THREAT_INTEL,
     ),
