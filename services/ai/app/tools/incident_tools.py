@@ -11,7 +11,20 @@ from collections import Counter
 from dataclasses import asdict
 from typing import Any
 
-from app.tools.registry import ToolContext
+import httpx
+
+from app.tools.registry import ToolArgumentsInvalid, ToolContext
+
+KEV_FEED_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+_KEV_FIELDS = (
+    "cveID",
+    "vendorProject",
+    "product",
+    "vulnerabilityName",
+    "dateAdded",
+    "shortDescription",
+    "requiredAction",
+)
 
 
 async def get_incident(ctx: ToolContext, _args: dict[str, Any]) -> tuple[Any, list[str], dict[str, Any]]:
@@ -73,68 +86,82 @@ async def get_evidence_summaries(
     }
 
 
+def _clip(value: object, limit: int = 300) -> str:
+    return str(value or "")[:limit]
+
+
+def _kev_match(query: str, row: dict[str, Any]) -> bool:
+    haystack = " ".join(_clip(row.get(field), 500) for field in _KEV_FIELDS).lower()
+    return query in haystack
+
+
+async def fetch_kev_matches(query: str, *, client: httpx.AsyncClient | None = None) -> dict[str, Any]:
+    """Read the public CISA KEV catalog. Never substitutes a local record."""
+
+    owns_client = client is None
+    http = client or httpx.AsyncClient(timeout=httpx.Timeout(8.0, connect=4.0), follow_redirects=True)
+    try:
+        response = await http.get(KEV_FEED_URL, headers={"Accept": "application/json", "User-Agent": "SentinelZero-exercise"})
+        response.raise_for_status()
+        payload = response.json()
+    except (httpx.HTTPError, ValueError, TypeError):
+        return {
+            "matches": [],
+            "source": KEV_FEED_URL,
+            "api_status": "UNAVAILABLE",
+            "catalog_version": "",
+            "note": "The public CISA KEV feed could not be read. No local catalog was substituted.",
+        }
+    finally:
+        if owns_client:
+            await http.aclose()
+
+    rows = payload.get("vulnerabilities") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        return {
+            "matches": [],
+            "source": KEV_FEED_URL,
+            "api_status": "UNAVAILABLE",
+            "catalog_version": "",
+            "note": "The CISA KEV feed did not contain a vulnerabilities list.",
+        }
+    needle = query.lower()
+    matches = []
+    for row in rows:
+        if not isinstance(row, dict) or not _kev_match(needle, row):
+            continue
+        matches.append({field: _clip(row.get(field)) for field in _KEV_FIELDS})
+        if len(matches) == 5:
+            break
+    return {
+        "matches": matches,
+        "source": KEV_FEED_URL,
+        "api_status": "PUBLIC_FEED",
+        "catalog_version": _clip(payload.get("catalogVersion"), 40),
+        "note": "Public CISA KEV JSON. Not an authenticated API and not MITRE ATT&CK.",
+    }
+
+
 async def query_threat_intelligence(
     ctx: ToolContext, args: dict[str, Any]
 ) -> tuple[Any, list[str], dict[str, Any]]:
-    """External API Tool: Query CISA KEV Catalog & MITRE ATT&CK Framework.
+    """Read the public CISA KEV feed for a caller-supplied query."""
 
-    Provides verified intelligence on ransomware families, known exploited CVEs,
-    lateral movement TTPs, and authoritative containment playbooks.
-    """
-    query = str(args.get("query", "")).lower().strip()
-    ioc_type = str(args.get("ioc_type", "GENERAL"))
-
-    # Authoritative external intelligence records (CISA KEV & MITRE ATT&CK)
-    intel_db = [
-        {
-            "cisa_record_id": "CISA-ADV-AA23-165A",
-            "threat_group": "LockBit 3.0 (LockBit Black)",
-            "known_tactics": ["T1486 Data Encrypted for Impact", "T1558.003 Kerberoasting", "T1490 Inhibit System Recovery", "T1078 Valid Accounts"],
-            "cisa_kev_cves": ["CVE-2023-3519", "CVE-2023-4966", "CVE-2024-1709"],
-            "containment_guidance": (
-                "1. Immediately sever domain trusts and reset Active Directory krbtgt account twice with minimum 10hr interval. "
-                "2. Isolate clinical and database VLANs at core layer-3 switches. "
-                "3. Invalidate Kerberos TGT tickets to terminate forged Golden Tickets. "
-                "4. Verify physical air-gap status of backup repositories."
-            ),
-            "severity": "CRITICAL",
-            "source": "CISA Cybersecurity Advisory & FBI Flash",
-        },
-        {
-            "cisa_record_id": "CISA-KEV-2024-1709",
-            "threat_group": "Ransomware Affiliates Initial Access",
-            "known_tactics": ["T1190 Exploit Public-Facing Application", "T1068 Exploitation for Privilege Escalation"],
-            "cisa_kev_cves": ["CVE-2024-1709"],
-            "containment_guidance": "Revoke remote access tokens, verify edge firewall ACLs, and terminate active web sessions.",
-            "severity": "CRITICAL",
-            "source": "CISA Known Exploited Vulnerabilities Catalog",
-        },
-        {
-            "cisa_record_id": "MITRE-T1558-003",
-            "threat_group": "Active Directory Golden Ticket Persistence",
-            "known_tactics": ["T1558.003 Steal or Forge Kerberos Tickets"],
-            "cisa_kev_cves": ["CVE-2022-26925"],
-            "containment_guidance": "Double krbtgt password reset required; single reset leaves prior Kerberos encryption key valid for ticket lifetime.",
-            "severity": "HIGH",
-            "source": "MITRE ATT&CK Framework Enterprise Matrix",
-        },
-    ]
-
-    matched = [
-        rec for rec in intel_db
-        if any(term in query for term in ["lockbit", "ransomware", "krbtgt", "kerberos", "cve", "active directory", "dc", "ticket"])
-        or query in rec["threat_group"].lower()
-        or any(query in cve.lower() for cve in rec["cisa_kev_cves"])
-    ]
-
-    results = matched if matched else intel_db[:1]
-
-    return results, [], {
-        "query": query,
-        "ioc_type": ioc_type,
-        "external_matches": len(results),
-        "source": "CISA KEV Catalog & MITRE ATT&CK API",
-        "api_status": "AUTHENTICATED_EXTERNAL_LOOKUP",
+    del ctx
+    query = str(args.get("query") or "").strip()
+    if len(query) < 2 or len(query) > 100:
+        raise ToolArgumentsInvalid("query must be between 2 and 100 characters.")
+    ioc_type = str(args.get("ioc_type") or "GENERAL")
+    if ioc_type not in {"MALWARE_FAMILY", "CVE_VULNERABILITY", "ATTACK_TECHNIQUE", "GENERAL"}:
+        ioc_type = "GENERAL"
+    result = await fetch_kev_matches(query)
+    result["query"] = query
+    result["ioc_type"] = ioc_type
+    return result, [], {
+        "query": query[:100],
+        "match_count": len(result["matches"]),
+        "api_status": result["api_status"],
+        "source": "CISA_KEV_PUBLIC_FEED",
     }
 
 
