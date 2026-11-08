@@ -1,5 +1,7 @@
 # SentinelZero Threat Model (backend scope)
 
+> As of contract 1.1.0, `docs/SECURITY_MODEL.md` is the authoritative security statement. It covers the stricter issuer policy (audience, expiry, lifetime), the WebSocket token limitation, the audit verifier, the deployment architecture and the isolation test plan. This table remains the per-threat index.
+
 Scope: the SpacetimeDB module (`packages/spacetime`), the shared contracts (`packages/shared`), and the trust boundary with the FastAPI AI service. The web UI and AI service internals are owned by AGENT-2 and AGENT-3; their obligations appear in section 5.
 
 Test references below are files in `packages/spacetime/tests/integration` unless marked `unit`.
@@ -42,7 +44,7 @@ Test references below are files in `packages/spacetime/tests/integration` unless
 | T13 | Stored XSS, bidi spoofing, control characters | Control and bidi-override characters are rejected. HTML is stored verbatim as text and **must be rendered as text** by the UI | `authorization.test.ts` |
 | T14 | Audit tampering | Per-organization SHA-256 hash chain, written in the same transaction as the change | `workflows.test.ts`, `contracts.test.ts` (unit) |
 | T15 | Secrets or PII in logs and audit | Audit metadata never contains message content (only its length) or tokens. Tool-call summaries contain counts and IDs only | `workflows.test.ts` |
-| T16 | Tokens from an untrusted identity provider | Optional `trusted_issuer` allowlist enforced in `onConnect` | `issuerPolicy.test.ts` |
+| T16 | Tokens from an untrusted identity provider | `trusted_issuer` and `trusted_audience` allowlists, plus `exp` and lifetime checks, enforced in `onConnect`. Expiry and lifetime bind HTTP only; see SECURITY_MODEL 2.3 | `issuerPolicy.test.ts`, `oidcLogin.test.ts` |
 | T17 | Prompt injection through evidence or messages | Text is passed to tools as data. The AI cannot read messages. Every AI output passes through human approval. **AI-side mitigations belong to AGENT-3** | partially verified: a hostile string in evidence is stored as data and cannot cause actions |
 
 ## 4. Known limitations and residual risks (not fixed)
