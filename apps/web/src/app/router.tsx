@@ -11,6 +11,8 @@ const ImpactGraphPage = lazy(() => import('../pages/ImpactGraphPage').then((m) =
 const TasksPage = lazy(() => import('../pages/TasksPage').then((m) => ({ default: m.TasksPage })));
 const CommunicationsPage = lazy(() => import('../pages/CommunicationsPage').then((m) => ({ default: m.CommunicationsPage })));
 const AdminPage = lazy(() => import('../pages/AdminPage').then((m) => ({ default: m.AdminPage })));
+const DataScopeLedgerPage = lazy(() => import('../pages/DataScopeLedgerPage').then((m) => ({ default: m.DataScopeLedgerPage })));
+const TeamAccessPage = lazy(() => import('../pages/TeamAccessPage').then((m) => ({ default: m.TeamAccessPage })));
 
 const PageFallback: React.FC = () => (
   <div role="status" aria-live="polite" className="flex items-center gap-2 p-6 text-xs font-mono text-slate-400">
@@ -27,12 +29,16 @@ export const AppRouter: React.FC = () => {
     switch (currentView) {
       case 'COMMAND_CENTER':
         return <CommandCenterPage />;
+      case 'DATA_SCOPES':
+        return <DataScopeLedgerPage />;
       case 'IMPACT_GRAPH':
         return <ImpactGraphPage />;
       case 'TASKS_BOARD':
         return <TasksPage />;
       case 'COMMUNICATIONS':
         return <CommunicationsPage />;
+      case 'TEAM_ACCESS':
+        return <TeamAccessPage />;
       case 'AUDIT_TIMELINE':
         return <AdminPage />;
       case 'AI_ASSISTANT':
