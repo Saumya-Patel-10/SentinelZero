@@ -28,7 +28,7 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ isOpen, onClos
       title: '',
       description: '',
       priority: 'HIGH',
-      assigned_identity: availableUsers[1]?.auth_identity || 'identity_marcus_vance',
+      assigned_identity: availableUsers[1]?.auth_identity || 'identity_kyle',
       requires_approval: true,
     },
   });
